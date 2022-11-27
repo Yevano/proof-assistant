@@ -162,7 +162,7 @@ fn test() {
     let ping_result = ping_domain("example.com".to_string());
     error_list.push_if_error(&ping_result);
 
-    let result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
+    let _result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
 }
 
 /*
