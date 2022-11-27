@@ -9,7 +9,7 @@ pub fn free_variables(expr: &Expression) -> HashSet<Variable> {
         Expression::Variable(v) => {
             let v = v.to_owned();
             let mut set = HashSet::<Variable>::new();
-            set.insert(v.clone());
+            set.insert(v);
             set
         }
         Expression::Binder(_, box Binder(v, t, e)) => {
@@ -49,15 +49,15 @@ pub fn substitute(t: &Expression, y: Variable, u: &Expression) -> Expression {
         Expression::Binder(binder_type, box Binder(x, a, b)) => {
             let a = substitute(a, y.clone(), u);
 
-            if *x == y.clone() {
-                Expression::binder(*binder_type, x.to_owned(), a.to_owned(), b.to_owned())
+            if *x == y {
+                Expression::binder(*binder_type, x.to_owned(), a, b.to_owned())
             } else {
                 let fvu = free_variables(&u);
                 if fvu.contains(&x) {
                     // Since x is free in u, we need to rename it.
                     let x1 = x.freshen(&fvu);
                     let b = substitute(b, x.to_owned(), &Expression::Variable(x1.clone()));
-                    Expression::binder(*binder_type, x1.clone(), a, substitute(&b, y, u))
+                    Expression::binder(*binder_type, x1, a, substitute(&b, y, u))
                 } else {
                     Expression::binder(*binder_type, x.to_owned(), a, substitute(b, y, u))
                 }
@@ -66,7 +66,7 @@ pub fn substitute(t: &Expression, y: Variable, u: &Expression) -> Expression {
 
         // (a b)[y := u] := (a[y := u]) (b[y := u])
         Expression::Application(box a, box b) => {
-            Expression::application(substitute(a, y.clone(), u), substitute(b, y.clone(), u))
+            Expression::application(substitute(a, y.clone(), u), substitute(b, y, u))
         }
     }
 }
@@ -394,7 +394,7 @@ pub fn alpha_eq(a: &Expression, b: &Expression) -> bool {
             let b_body = substitute(
                 &b_body,
                 b_x.clone(),
-                &Expression::Variable(fresh_variable.clone()),
+                &Expression::Variable(fresh_variable),
             );
             alpha_eq(&a_body, &b_body)
         }

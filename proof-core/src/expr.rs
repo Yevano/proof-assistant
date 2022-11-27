@@ -176,13 +176,12 @@ impl Display for Variable {
     }
 }
 
-impl BinderType {
-    pub fn to_string(&self) -> String {
+impl Display for BinderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinderType::Product => "Π",
-            BinderType::Abstraction => "λ",
+            BinderType::Product => write!(f, "Π"),
+            BinderType::Abstraction => write!(f, "λ"),
         }
-        .to_string()
     }
 }
 

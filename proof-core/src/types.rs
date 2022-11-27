@@ -19,7 +19,7 @@ pub enum Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn extend(self, variable: Variable, expression: Cow<'a, Expression>) -> Self {
-        Context::Extend(Box::new(self), variable.clone(), expression)
+        Context::Extend(Box::new(self), variable, expression)
     }
 
     pub fn get(&self, v: &Variable) -> Option<Expression> {
@@ -68,7 +68,7 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
         Expression::Hole => Result::Ok(Expression::Hole),
         Expression::Sort(i) => Result::Ok(Expression::sort(i.index() + 1)),
         Expression::Variable(v) => match context.get(v) {
-            Some(t) => Result::Ok(t.clone()),
+            Some(t) => Result::Ok(t),
             None => error!("variable {} not found in context {}", v, context).into(),
         },
         Expression::Binder(binder_type, box Binder(v, type_, body)) => {
@@ -127,8 +127,8 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
 }
 
 pub fn types_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
-    let lhs_beta_reduced = beta_reduce(&lhs);
-    let rhs_beta_reduced = beta_reduce(&rhs);
+    let lhs_beta_reduced = beta_reduce(lhs);
+    let rhs_beta_reduced = beta_reduce(rhs);
     if lhs_beta_reduced == Expression::Hole || rhs_beta_reduced == Expression::Hole || alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced) {
         Ok(())
     } else {

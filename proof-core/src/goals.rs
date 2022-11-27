@@ -10,6 +10,7 @@ use crate::{
     types::{resolve_type, Context},
 };
 
+#[derive(Clone)]
 pub struct Goal<'a> {
     context: Context<'a>,
     goal_constraint: Cow<'a, Constraint>,
@@ -19,7 +20,7 @@ impl<'a> Goal<'a> {
     pub fn new(context: Context<'a>, goal_constraint: Cow<'a, Constraint>) -> Self {
         Goal {
             context,
-            goal_constraint: goal_constraint,
+            goal_constraint,
         }
     }
 }
@@ -162,7 +163,7 @@ fn find_expected_type_goals<'a>(
         Expression::Sort(_) => todo!("Sorts are not implemented yet"),
         Expression::Variable(variable) => {
             let actual_type = context
-                .get(&variable)
+                .get(variable)
                 .ok_or_else(|| error!("Variable {} not found in context", variable))?;
             let eq_goals = find_eq_goals(context, Cow::Owned(actual_type), expected_type.clone());
             eq_goals.chain_error(|| {
@@ -173,7 +174,7 @@ fn find_expected_type_goals<'a>(
             })
         }
         Expression::Application(left, right) => {
-            let left_type = resolve_type(&left, &context).chain_error(|| {
+            let left_type = resolve_type(left, &context).chain_error(|| {
                 error!(
                     "Could not resolve type of left-hand-side in application {}",
                     expression
@@ -213,8 +214,8 @@ fn find_expected_type_goals<'a>(
                     expression
                 )
             });
-            error_list.push_if_error(&goals);
-            error_list.push_if_error(&body_type);
+            error_list.push_if_error(|| goals.clone());
+            error_list.push_if_error(|| body_type.clone());
             error_list.into_result(|| goals.unwrap(), || error!("Could not find typing goal for application {}", expression))
         }
         Expression::Binder(
@@ -250,7 +251,7 @@ fn find_expected_type_goals<'a>(
                 .chain_error(|| {
                     error!(
                         "Could not find goals for body of abstraction {}",
-                        expression.into_owned()
+                        expression
                     )
                 })?;
                 goals.append(&mut body_goals);

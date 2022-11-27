@@ -1,4 +1,4 @@
-use std::{rc::Rc, fmt::{Display, Formatter}};
+use std::{rc::Rc, fmt::{Display, Formatter}, borrow::{Borrow, BorrowMut}};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorInfo {
@@ -28,7 +28,7 @@ impl Display for ErrorChain {
         write!(f, "{}:{}:{}: {}", self.error_info.file, self.error_info.line, self.error_info.column, self.error_info.message)?;
         let num_causes = self.causes.len();
         if num_causes > 0 {
-            write!(f, " (due to {} error{}):\n", num_causes, if num_causes > 1 { "s" } else { "" })?;
+            writeln!(f, " (due to {} error{}):", num_causes, if num_causes > 1 { "s" } else { "" })?;
         }
         for cause in self.causes.iter() {
             write!(f, "caused by: {}", cause)?;
@@ -128,10 +128,10 @@ impl ErrorList {
         self.0.push(error_chain);
     }
 
-    pub fn push_if_error<T>(&mut self, result: &Result<T>) {
-        match result {
+    pub fn push_if_error<T, F: FnOnce() -> Result<T>>(&mut self, result: F) {
+        match result() {
             Result::Ok(_) => {},
-            Result::Err(error_chain) => self.push(error_chain.to_owned()),
+            Result::Err(error_chain) => self.push(error_chain),
         }
     }
 
@@ -144,12 +144,36 @@ impl ErrorList {
     }
 }
 
+impl Default for ErrorList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for ErrorList {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         for error_chain in self.0.iter() {
             writeln!(f, "{}", error_chain)?;
         }
         Ok(())
+    }
+}
+
+impl Borrow<Vec<ErrorChain>> for ErrorList {
+    fn borrow(&self) -> &Vec<ErrorChain> {
+        &self.0
+    }
+}
+
+impl BorrowMut<Vec<ErrorChain>> for ErrorList {
+    fn borrow_mut(&mut self) -> &mut Vec<ErrorChain> {
+        &mut self.0
+    }
+}
+
+impl From<Vec<ErrorChain>> for ErrorList {
+    fn from(value: Vec<ErrorChain>) -> Self {
+        Self(value)
     }
 }
 
