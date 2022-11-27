@@ -7,7 +7,7 @@ use std::{
 use crate::result::ResultExt;
 use crate::{eval::beta_reduce, result::Result};
 use crate::{
-    eval::{alpha_eq, beta_reduce_step},
+    eval::{alpha_eq},
     expr::{Binder, BinderType, Expression, Variable},
 };
 
@@ -129,9 +129,7 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
 pub fn types_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
     let lhs_beta_reduced = beta_reduce(&lhs);
     let rhs_beta_reduced = beta_reduce(&rhs);
-    if lhs_beta_reduced == Expression::Hole || rhs_beta_reduced == Expression::Hole {
-        Ok(())
-    } else if alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced) {
+    if lhs_beta_reduced == Expression::Hole || rhs_beta_reduced == Expression::Hole || alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced) {
         Ok(())
     } else {
         error!(

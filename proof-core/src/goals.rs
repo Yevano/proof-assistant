@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    eval::{beta_reduce_step, substitute},
+    eval::{beta_reduce_step},
     expr::{Binder, BinderType, Expression},
     result::*,
     types::{resolve_type, Context},
@@ -115,7 +115,7 @@ fn find_eq_goals<'a>(
             )]),
             Expression::Binder(
                 expected_binder_type,
-                box Binder(expected_variable, expected_variable_type, expected_body),
+                box Binder(_expected_variable, expected_variable_type, expected_body),
             ) => {
                 if binder_type == expected_binder_type {
                     let mut goals = find_eq_goals(
@@ -261,7 +261,7 @@ fn find_expected_type_goals<'a>(
         }
         Expression::Binder(
             BinderType::Product,
-            box Binder(bound_variable, bound_variable_type, body),
+            box Binder(_bound_variable, _bound_variable_type, _body),
         ) => {
             todo!("find_expected_type_goals for product")
         }

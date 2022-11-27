@@ -163,7 +163,6 @@ fn test() {
     error_list.push_if_error(&ping_result);
 
     let result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
-    println!("{}", result);
 }
 
 /*

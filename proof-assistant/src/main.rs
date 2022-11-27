@@ -1,4 +1,4 @@
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow};
 
 use proof_core::{
     expr::{Expression, Variable},
@@ -9,6 +9,17 @@ use proof_core::{
 };
 
 fn main() {
+    
+}
+
+fn type_check_test_2() {
+    /* let t = Expression::product(
+        "α".into(), Expression::sort(0),
+        Expression::abstraction()
+    ) */
+}
+
+fn type_check_test() {
     let prop = &Expression::sort(0);
     let bottom = &Expression::product("α".into(), prop.clone(), "α".into());
     let bottom_type = &resolve_type(bottom, &Context::Empty).unwrap_chain();

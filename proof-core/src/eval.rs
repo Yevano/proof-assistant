@@ -1,10 +1,6 @@
-use std::{
-    collections::hash_set::HashSet, borrow::Borrow,
-};
+use std::{borrow::Borrow, collections::hash_set::HashSet};
 
 use crate::expr::{Binder, Expression, Variable};
-
-use crate::result::*;
 
 pub fn free_variables(expr: &Expression) -> HashSet<Variable> {
     match expr {
@@ -80,7 +76,7 @@ fn it_substitutes_hole() {
     assert_eq!(
         substitute(
             &Expression::Hole,
-            &Variable::new("x"),
+            Variable::new("x"),
             &Expression::variable("y")
         ),
         Expression::Hole
@@ -90,11 +86,11 @@ fn it_substitutes_hole() {
 #[test]
 fn it_substitutes_sort() {
     assert_eq!(
-        substitute(&Expression::sort(0), &Variable::new("x"), &Expression::Hole),
+        substitute(&Expression::sort(0), Variable::new("x"), &Expression::Hole),
         Expression::sort(0)
     );
     assert_eq!(
-        substitute(&Expression::sort(1), &Variable::new("x"), &Expression::Hole),
+        substitute(&Expression::sort(1), Variable::new("x"), &Expression::Hole),
         Expression::sort(1)
     );
 }
@@ -104,7 +100,7 @@ fn it_substitutes_variable() {
     assert_eq!(
         substitute(
             &Expression::variable("x"),
-            &Variable::new("x"),
+            Variable::new("x"),
             &Expression::Hole
         ),
         Expression::Hole
@@ -112,7 +108,7 @@ fn it_substitutes_variable() {
     assert_eq!(
         substitute(
             &Expression::variable("y"),
-            &Variable::new("x"),
+            Variable::new("x"),
             &Expression::Hole
         ),
         Expression::variable("y")
@@ -123,69 +119,61 @@ fn it_substitutes_variable() {
 fn it_substitutes_product() {
     assert_eq!(
         substitute(
+            &Expression::product("x".into(), "a".into(), "b".into(),),
+            "x".into(),
+            &"y".into()
+        ),
+        Expression::product("x".into(), "a".into(), "b".into(),)
+    );
+
+    assert_eq!(
+        substitute(
             &Expression::product(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::variable("b")
+                "x".into(),
+                "x".into(),
+                "b".into()
             ),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            "x".into(),
+            &"y".into()
         ),
         Expression::product(
-            &Variable::new("x"),
-            &Expression::variable("a"),
-            &Expression::variable("b")
+            "x".into(),
+            "y".into(),
+            "b".into()
         )
     );
 
     assert_eq!(
         substitute(
             &Expression::product(
-                &Variable::new("x"),
-                &Expression::variable("x"),
-                &Expression::variable("b")
+                "x".into(),
+                "a".into(),
+                "b".into()
             ),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            "b".into(),
+            &"y".into()
         ),
         Expression::product(
-            &Variable::new("x"),
-            &Expression::variable("y"),
-            &Expression::variable("b")
+            "x".into(),
+            "a".into(),
+            "y".into()
         )
     );
 
     assert_eq!(
         substitute(
             &Expression::product(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::variable("b")
+                "x".into(),
+                "a".into(),
+                Expression::application("y".into(), "x".into())
             ),
-            &Variable::new("b"),
-            &Expression::variable("y")
+            "y".into(),
+            &"x".into()
         ),
         Expression::product(
-            &Variable::new("x"),
-            &Expression::variable("a"),
-            &Expression::variable("y")
-        )
-    );
-
-    assert_eq!(
-        substitute(
-            &Expression::product(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::application(&Expression::variable("y"), &Expression::variable("x"))
-            ),
-            &Variable::new("y"),
-            &Expression::variable("x")
-        ),
-        Expression::product(
-            &Variable::new_with_ss("x", 1),
-            &Expression::variable("a"),
-            &Expression::application(&Expression::variable("x"), &Expression::variable_ss("x", 1))
+            Variable::new_with_ss("x", 1),
+            "a".into(),
+            Expression::application("x".into(), Expression::variable_ss("x", 1))
         )
     );
 }
@@ -195,68 +183,68 @@ fn it_substitutes_abstraction() {
     assert_eq!(
         substitute(
             &Expression::abstraction(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::variable("b")
+                "x".into(),
+                "a".into(),
+                "b".into()
             ),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            "x".into(),
+            &"y".into()
         ),
         Expression::abstraction(
-            &Variable::new("x"),
-            &Expression::variable("a"),
-            &Expression::variable("b")
+            "x".into(),
+            "a".into(),
+            "b".into()
         )
     );
 
     assert_eq!(
         substitute(
             &Expression::abstraction(
-                &Variable::new("x"),
-                &Expression::variable("x"),
-                &Expression::variable("b")
+                "x".into(),
+                "x".into(),
+                "b".into()
             ),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            "x".into(),
+            &"y".into()
         ),
         Expression::abstraction(
-            &Variable::new("x"),
-            &Expression::variable("y"),
-            &Expression::variable("b")
+            "x".into(),
+            "y".into(),
+            "b".into()
         )
     );
 
     assert_eq!(
         substitute(
             &Expression::abstraction(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::variable("b")
+                "x".into(),
+                "a".into(),
+                "b".into()
             ),
-            &Variable::new("b"),
-            &Expression::variable("y")
+            "b".into(),
+            &"y".into()
         ),
         Expression::abstraction(
-            &Variable::new("x"),
-            &Expression::variable("a"),
-            &Expression::variable("y")
+            "x".into(),
+            "a".into(),
+            "y".into()
         )
     );
 
     assert_eq!(
         substitute(
             &Expression::abstraction(
-                &Variable::new("x"),
-                &Expression::variable("a"),
-                &Expression::application(&Expression::variable("y"), &Expression::variable("x"))
+                "x".into(),
+                "a".into(),
+                Expression::application("y".into(), "x".into())
             ),
-            &Variable::new("y"),
-            &Expression::variable("x")
+            "y".into(),
+            &"x".into()
         ),
         Expression::abstraction(
-            &Variable::new_with_ss("x", 1),
-            &Expression::variable("a"),
-            &Expression::application(&Expression::variable("x"), &Expression::variable_ss("x", 1))
+            Variable::new_with_ss("x", 1),
+            "a".into(),
+            Expression::application("x".into(), Expression::variable_ss("x", 1))
         )
     );
 }
@@ -265,29 +253,29 @@ fn it_substitutes_abstraction() {
 fn it_substitutes_application() {
     assert_eq!(
         substitute(
-            &Expression::application(&Expression::variable("a"), &Expression::variable("b")),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            &Expression::application("a".into(), "b".into()),
+            "x".into(),
+            &"y".into()
         ),
-        Expression::application(&Expression::variable("a"), &Expression::variable("b"))
+        Expression::application("a".into(), "b".into())
     );
 
     assert_eq!(
         substitute(
-            &Expression::application(&Expression::variable("x"), &Expression::variable("b")),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            &Expression::application("x".into(), "b".into()),
+            "x".into(),
+            &"y".into()
         ),
-        Expression::application(&Expression::variable("y"), &Expression::variable("b"))
+        Expression::application("y".into(), "b".into())
     );
 
     assert_eq!(
         substitute(
-            &Expression::application(&Expression::variable("a"), &Expression::variable("x")),
-            &Variable::new("x"),
-            &Expression::variable("y")
+            &Expression::application("a".into(), "x".into()),
+            "x".into(),
+            &"y".into()
         ),
-        Expression::application(&Expression::variable("a"), &Expression::variable("y"))
+        Expression::application(Expression::variable("a"), Expression::variable("y"))
     );
 }
 
@@ -352,8 +340,16 @@ pub fn is_normal_form(expression: &Expression) -> bool {
     }
 }
 
-pub fn get_compatible_bound_variable(x1: &Variable, y1: &Expression, x2: &Variable, y2: &Expression) -> Variable {
-    let combined_free_variables: HashSet<Variable> = free_variables(y1).union(&free_variables(y2)).cloned().collect();
+pub fn get_compatible_bound_variable(
+    x1: &Variable,
+    y1: &Expression,
+    x2: &Variable,
+    y2: &Expression,
+) -> Variable {
+    let combined_free_variables: HashSet<Variable> = free_variables(y1)
+        .union(&free_variables(y2))
+        .cloned()
+        .collect();
     if !combined_free_variables.contains(x1) {
         x1.clone()
     } else if !combined_free_variables.contains(x2) {
@@ -373,24 +369,34 @@ pub fn alpha_eq(a: &Expression, b: &Expression) -> bool {
             alpha_eq(f.borrow(), g.borrow()) && alpha_eq(x.borrow(), y.borrow())
         }
 
-        (Expression::Binder(a_binder_type, a_binder), Expression::Binder(b_binder_type, b_binder)) => {
+        (
+            Expression::Binder(a_binder_type, a_binder),
+            Expression::Binder(b_binder_type, b_binder),
+        ) => {
             if a_binder_type != b_binder_type {
                 return false;
             }
 
-            match (a_binder, b_binder) {
-                (box Binder(a_x, a_x_type, a_body), box Binder(b_x, b_x_type, b_body)) => {
-                    if !alpha_eq(&a_x_type, &b_x_type) {
-                        return false;
-                    }
+            let (box Binder(a_x, a_x_type, a_body), box Binder(b_x, b_x_type, b_body)) = (a_binder, b_binder);
 
-                    let fresh_variable = get_compatible_bound_variable(&a_x, &a_body, &b_x, &b_body);
-
-                    let a_body = substitute(&a_body, a_x.clone(), &Expression::Variable(fresh_variable.clone()));
-                    let b_body = substitute(&b_body, b_x.clone(), &Expression::Variable(fresh_variable.clone()));
-                    alpha_eq(&a_body, &b_body)
-                }
+            if !alpha_eq(&a_x_type, &b_x_type) {
+                return false;
             }
+
+            let fresh_variable =
+                get_compatible_bound_variable(&a_x, &a_body, &b_x, &b_body);
+
+            let a_body = substitute(
+                &a_body,
+                a_x.clone(),
+                &Expression::Variable(fresh_variable.clone()),
+            );
+            let b_body = substitute(
+                &b_body,
+                b_x.clone(),
+                &Expression::Variable(fresh_variable.clone()),
+            );
+            alpha_eq(&a_body, &b_body)
         }
         _ => false,
     }
