@@ -1,0 +1,9 @@
+[package]
+name = "proof-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+syn = { version = "1.0.103", features = ["full"] }
+quote = "1.0.21"
+proc-macro2 = { version = "1.0.47", features = ["span-locations"] }
