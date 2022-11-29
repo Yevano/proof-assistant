@@ -216,11 +216,15 @@ impl Display for Expression {
                 }
             }
             Self::Application(function, argument) => {
-                // Put parentheses around function if it is a binder. Put parentheses around argument if it is an application.
+                // Put parentheses around function if it is a binder or an application whose argument is a binder.
                 let function = match function {
                     box Expression::Binder(_, _) => format!("({})", function),
+                    box Expression::Application(_, box Expression::Binder(_, _)) => {
+                        format!("({})", function)
+                    }
                     _ => format!("{}", function),
                 };
+                // Put parentheses around argument if it is an application.
                 let argument = match argument {
                     box Expression::Application(_, _) => format!("({})", argument),
                     _ => format!("{}", argument),
