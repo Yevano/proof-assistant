@@ -25,7 +25,8 @@ impl ErrorChain {
 
 fn display_chain(chain: &ErrorChain, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
     let indent_str = " ".repeat(indent);
-    write!(f, "{}{}:{}:{}: {}", indent_str, chain.error_info.file, chain.error_info.line, chain.error_info.column, chain.error_info.message)?;
+    writeln!(f, "{}{}", indent_str, chain.error_info.message)?;
+    write!(f, "{}┗ {}:{}:{}", indent_str, chain.error_info.file, chain.error_info.line, chain.error_info.column)?;
     let num_causes = chain.causes.len();
     if num_causes > 0 {
         writeln!(f, " (due to {} error{}):", num_causes, if num_causes > 1 { "s" } else { "" })?;
