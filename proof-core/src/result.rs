@@ -23,17 +23,24 @@ impl ErrorChain {
     }
 }
 
+fn display_chain(chain: &ErrorChain, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
+    let indent_str = " ".repeat(indent);
+    write!(f, "{}{}:{}:{}: {}", indent_str, chain.error_info.file, chain.error_info.line, chain.error_info.column, chain.error_info.message)?;
+    let num_causes = chain.causes.len();
+    if num_causes > 0 {
+        writeln!(f, " (due to {} error{}):", num_causes, if num_causes > 1 { "s" } else { "" })?;
+    } else {
+        writeln!(f)?;
+    }
+    for cause in chain.causes.iter() {
+        display_chain(cause, f, indent + 2)?;
+    }
+    Ok(())
+}
+
 impl Display for ErrorChain {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}:{}:{}: {}", self.error_info.file, self.error_info.line, self.error_info.column, self.error_info.message)?;
-        let num_causes = self.causes.len();
-        if num_causes > 0 {
-            writeln!(f, " (due to {} error{}):", num_causes, if num_causes > 1 { "s" } else { "" })?;
-        }
-        for cause in self.causes.iter() {
-            write!(f, "caused by: {}", cause)?;
-        }
-        Ok(())
+        display_chain(self, f, 0)
     }
 }
 
