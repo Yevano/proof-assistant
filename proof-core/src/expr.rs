@@ -5,39 +5,6 @@ use crate::{types::Context, eval::free_variables};
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct Variable(String, Option<u32>);
 
-#[derive(Eq, Hash, PartialEq, Clone, Debug, Copy)]
-pub struct SortRank(u32);
-
-#[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub struct Binder(pub Variable, pub Expression, pub Expression);
-
-#[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub enum Expression {
-    /// A placeholder for a welltyped expression.
-    Hole,
-
-    /// A sort. P if rank is zero, or U(rank) otherwise.
-    Sort(SortRank),
-
-    /// A variable.
-    Variable(Variable),
-
-    /// A product type Πx:t.u or abstraction λx:t.y.
-    Binder(BinderType, Box<Binder>),
-
-    /// An application t1 t2.
-    Application(Box<Expression>, Box<Expression>),
-}
-
-#[derive(Eq, Hash, PartialEq, Clone, Debug, Copy)]
-pub enum BinderType {
-    /// A product type Πx:t.t.
-    Product,
-
-    /// An abstraction λx:t.t.
-    Abstraction,
-}
-
 impl Variable {
     pub fn new(name: &str) -> Self {
         Self(name.to_string(), None)
@@ -87,6 +54,25 @@ impl Variable {
     }
 }
 
+impl Display for Variable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)?;
+        if let Some(ss) = self.1 {
+            write!(f, "{}", to_subscript(ss))?;
+        }
+        Ok(())
+    }
+}
+
+impl From<&str> for Variable {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+#[derive(Eq, Hash, PartialEq, Clone, Debug, Copy)]
+pub struct SortRank(u32);
+
 impl SortRank {
     pub fn new(rank: u32) -> Self {
         Self(rank)
@@ -95,6 +81,45 @@ impl SortRank {
     pub fn index(&self) -> u32 {
         self.0
     }
+}
+
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+pub struct Binder(pub Variable, pub Expression, pub Expression);
+
+#[derive(Eq, Hash, PartialEq, Clone, Debug, Copy)]
+pub enum BinderType {
+    /// A product type Πx:t.t.
+    Product,
+
+    /// An abstraction λx:t.t.
+    Abstraction,
+}
+
+impl Display for BinderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinderType::Product => write!(f, "Π"),
+            BinderType::Abstraction => write!(f, "λ"),
+        }
+    }
+}
+
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+pub enum Expression {
+    /// A placeholder for a welltyped expression.
+    Hole,
+
+    /// A sort. P if rank is zero, or U(rank) otherwise.
+    Sort(SortRank),
+
+    /// A variable.
+    Variable(Variable),
+
+    /// A product type Πx:t.u or abstraction λx:t.y.
+    Binder(BinderType, Box<Binder>),
+
+    /// An application t1 t2.
+    Application(Box<Expression>, Box<Expression>),
 }
 
 impl Expression {
@@ -143,45 +168,6 @@ impl Expression {
 
     pub fn application(function: Expression, argument: Expression) -> Self {
         Self::Application(Box::new(function), Box::new(argument))
-    }
-}
-
-fn to_subscript(n: u32) -> String {
-    let mut s = String::new();
-    for c in n.to_string().chars() {
-        s.push(match c {
-            '0' => '₀',
-            '1' => '₁',
-            '2' => '₂',
-            '3' => '₃',
-            '4' => '₄',
-            '5' => '₅',
-            '6' => '₆',
-            '7' => '₇',
-            '8' => '₈',
-            '9' => '₉',
-            _ => unreachable!(),
-        });
-    }
-    s
-}
-
-impl Display for Variable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)?;
-        if let Some(ss) = self.1 {
-            write!(f, "{}", to_subscript(ss))?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for BinderType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BinderType::Product => write!(f, "Π"),
-            BinderType::Abstraction => write!(f, "λ"),
-        }
     }
 }
 
@@ -245,12 +231,6 @@ impl Display for Expression {
     }
 }
 
-impl From<&str> for Variable {
-    fn from(s: &str) -> Self {
-        Self::new(s)
-    }
-}
-
 impl From<&str> for Expression {
     fn from(s: &str) -> Self {
         Self::variable(s)
@@ -261,4 +241,24 @@ impl From<Variable> for Expression {
     fn from(variable: Variable) -> Self {
         Self::variable(&variable.to_string())
     }
+}
+
+fn to_subscript(n: u32) -> String {
+    let mut s = String::new();
+    for c in n.to_string().chars() {
+        s.push(match c {
+            '0' => '₀',
+            '1' => '₁',
+            '2' => '₂',
+            '3' => '₃',
+            '4' => '₄',
+            '5' => '₅',
+            '6' => '₆',
+            '7' => '₇',
+            '8' => '₈',
+            '9' => '₉',
+            _ => unreachable!(),
+        });
+    }
+    s
 }
