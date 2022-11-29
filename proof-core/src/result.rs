@@ -189,12 +189,3 @@ mod test {
         let _result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
     }
 }
-
-/*
-Errors look like:
-a.rs:1:1 Failed to do something (due to 2 errors)
-  a.rs:2:1 Failed to do something else (due to 1 error)
-    c.rs:2:1 Failed to do something else
-  a.rs:3:1 Failed to do something else
-b.rs:1:1 Failed to do something
- */
