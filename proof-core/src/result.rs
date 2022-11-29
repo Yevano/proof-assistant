@@ -97,26 +97,6 @@ macro_rules! error {
     };
 }
 
-#[allow(dead_code)]
-fn read_file(file_name: String) -> Result<String> {
-    error!("file not found: {}", file_name).into()
-}
-
-#[allow(dead_code)]
-fn resolve_domain(domain: String) -> Result<String> {
-    error!("Failed to resolve domain {}", domain).into()
-}
-
-#[allow(dead_code)]
-fn format_document(file_name: String) -> Result<String> {
-    read_file(file_name).chain_error(|| error!("Failed to read file"))
-}
-
-#[allow(dead_code)]
-fn ping_domain(domain: String) -> Result<String> {
-    resolve_domain(domain).chain_error(|| error!("Failed to resolve domain"))
-}
-
 pub struct ErrorList(Vec<ErrorChain>);
 
 impl ErrorList {
@@ -177,16 +157,37 @@ impl From<Vec<ErrorChain>> for ErrorList {
     }
 }
 
-#[test]
-fn test() {
-    let mut error_list = ErrorList::new();
-    let doc_result = format_document("test.txt".to_string());
-    error_list.push_if_error(&doc_result);
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let ping_result = ping_domain("example.com".to_string());
-    error_list.push_if_error(&ping_result);
+    fn read_file(file_name: String) -> Result<String> {
+        error!("file not found: {}", file_name).into()
+    }
 
-    let _result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
+    fn resolve_domain(domain: String) -> Result<String> {
+        error!("Failed to resolve domain {}", domain).into()
+    }
+
+    fn format_document(file_name: String) -> Result<String> {
+        read_file(file_name).chain_error(|| error!("Failed to read file"))
+    }
+
+    fn ping_domain(domain: String) -> Result<String> {
+        resolve_domain(domain).chain_error(|| error!("Failed to resolve domain"))
+    }
+
+    #[test]
+    fn test() {
+        let mut error_list = ErrorList::new();
+        let doc_result = format_document("test.txt".to_string());
+        error_list.push_if_error(|| doc_result);
+
+        let ping_result = ping_domain("example.com".to_string());
+        error_list.push_if_error(|| ping_result);
+
+        let _result = Result::<String>::errors(error!("Failed to do all the stuff"), error_list);
+    }
 }
 
 /*
