@@ -1,6 +1,9 @@
-use std::{collections::HashSet, fmt::Display};
+use std::{
+    collections::HashSet,
+    fmt::{write, Display},
+};
 
-use crate::{types::Context, eval::free_variables};
+use crate::{eval::free_variables, types::Context};
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct Variable(String, Option<u32>);
@@ -188,13 +191,7 @@ impl Display for Expression {
                     Expression::Binder(_, _) => format!("({})", type_),
                     _ => format!("{}", type_),
                 };
-                write!(
-                    f,
-                    "λ{}:{}.{}",
-                    variable,
-                    type_,
-                    body
-                )
+                write!(f, "λ{}:{}.{}", variable, type_, body)
             }
             Self::Binder(BinderType::Product, box Binder(variable, type_, body)) => {
                 let fvs_in_body = free_variables(body);
@@ -204,33 +201,50 @@ impl Display for Expression {
                 };
                 // Check if variable is free in body.
                 if fvs_in_body.contains(variable) {
-                    write!(
-                        f,
-                        "Π{}:{}.{}",
-                        variable,
-                        type_,
-                        body
-                    )
+                    write!(f, "Π{}:{}.{}", variable, type_, body)
                 } else {
                     write!(f, "{} ⭆ {}", type_, body)
                 }
             }
-            Self::Application(function, argument) => {
-                // Put parentheses around function if it is a binder or an application whose argument is a binder.
-                let function = match function {
-                    box Expression::Binder(_, _) => format!("({})", function),
-                    box Expression::Application(_, box Expression::Binder(_, _)) => {
-                        format!("({})", function)
+
+            Self::Application(a, b) => {
+                let lhs = match (*a).clone() {
+                    box Expression::Application(
+                        box Expression::Application(
+                            a1,
+                            box Expression::Binder(b1, b2),
+                        ),
+                        box Expression::Binder(c1, c2),
+                    ) => {
+                        format!(
+                            "({}) ({}) ({})",
+                            a1,
+                            Expression::Binder(b1, b2),
+                            Expression::Binder(c1, c2),
+                        )
                     }
-                    _ => format!("{}", function),
+                    box Expression::Application(
+                        a1,
+                        box Expression::Binder(b1, b2),
+                    ) => {
+                        format!(
+                            "{} ({})",
+                            a1,
+                            Expression::Binder(b1, b2)
+                        )
+                    }
+                    box Expression::Application(_, _) => format!("{}", a),
+                    box Expression::Binder(_, _) => format!("({})", a),
+                    box Expression::Variable(_) => format!("{}", a),
+                    _ => format!("({})", a),
                 };
-                // Put parentheses around argument if it is an application.
-                let argument = match argument {
-                    box Expression::Application(_, _) => format!("({})", argument),
-                    _ => format!("{}", argument),
+                let rhs = if let box Self::Application(_, _) = b {
+                    format!("({})", b)
+                } else {
+                    format!("{}", b)
                 };
-                write!(f, "{} {}", function, argument)
-            },
+                write!(f, "{} {}", lhs, rhs)
+            }
         }
     }
 }
