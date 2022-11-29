@@ -4,7 +4,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use crate::result::ResultExt;
+use crate::{result::ResultExt, eval::substitute};
 use crate::{eval::beta_reduce, result::Result};
 use crate::{
     eval::{alpha_eq},
@@ -88,26 +88,22 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
             let app_lhs_type = resolve_type(app_lhs, context).chain_error(|| {
                 error!("failed to resolve type of function in application {}", expr)
             })?;
-            println!("NOTE: lhs = {} :: {}", app_lhs, app_lhs_type);
             match app_lhs_type {
                 Expression::Binder(BinderType::Product, box Binder(_v, type_, body)) => {
                     let app_rhs_type = resolve_type(app_rhs, context).chain_error(|| {
                         error!("failed to resolve type of argument in application {}", expr)
                     })?;
-                    println!("NOTE: rhs = {} :: {}", app_rhs, app_rhs_type);
-                    /* let type_beta_reduced = beta_reduce(&type_);
-                    let app_rhs_type_beta_reduced = beta_reduce(&app_rhs_type);
-                    if alpha_eq(&type_beta_reduced, &app_rhs_type_beta_reduced) {
-                        Ok(body.clone())
-                    } else {
-                        error!(
-                            "type mismatch in application {}: expected {}, got {} (beta reduced to {} and {}, not α-equivalent)",
-                            expr, type_, app_rhs_type, type_beta_reduced, app_rhs_type_beta_reduced
-                        )
-                        .into()
-                    } */
-
-                    types_match(&type_, &app_rhs_type).map(|_| body.clone()).chain_error(|| {
+                    
+                    types_match(&type_, &app_rhs_type)
+                    .map(|_| {
+                        // If the argument type is a sort, we have to β-reduce
+                        if let Expression::Sort(_) = app_rhs_type {
+                            substitute(&body, _v, &app_rhs.clone())
+                        } else {
+                            body.clone()
+                        }
+                    })
+                    .chain_error(|| {
                         error!(
                             "type mismatch in application {}: expected {}, got {}",
                             expr, type_, app_rhs_type
@@ -139,6 +135,3 @@ pub fn types_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
         .into()
     }
 }
-
-// #[test]
-// fn it_
