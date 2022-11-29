@@ -209,39 +209,15 @@ impl Display for Expression {
 
             Self::Application(a, b) => {
                 let lhs = match (*a).clone() {
-                    box Expression::Application(
-                        box Expression::Application(
-                            a1,
-                            box Expression::Binder(b1, b2),
-                        ),
-                        box Expression::Binder(c1, c2),
-                    ) => {
-                        format!(
-                            "({}) ({}) ({})",
-                            a1,
-                            Expression::Binder(b1, b2),
-                            Expression::Binder(c1, c2),
-                        )
-                    }
-                    box Expression::Application(
-                        a1,
-                        box Expression::Binder(b1, b2),
-                    ) => {
-                        format!(
-                            "{} ({})",
-                            a1,
-                            Expression::Binder(b1, b2)
-                        )
-                    }
                     box Expression::Application(_, _) => format!("{}", a),
                     box Expression::Binder(_, _) => format!("({})", a),
                     box Expression::Variable(_) => format!("{}", a),
                     _ => format!("({})", a),
                 };
-                let rhs = if let box Self::Application(_, _) = b {
-                    format!("({})", b)
-                } else {
-                    format!("{}", b)
+                let rhs = match b {
+                    box Self::Application(_, _) => format!("({})", b),
+                    box Self::Binder(_, _) => format!("({})", b),
+                    _ => format!("{}", b),
                 };
                 write!(f, "{} {}", lhs, rhs)
             }
