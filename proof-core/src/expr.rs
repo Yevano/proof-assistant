@@ -86,6 +86,16 @@ impl SortRank {
     }
 }
 
+impl Display for SortRank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.index() == 0 {
+            write!(f, "*")
+        } else {
+            write!(f, "𝒰{}", to_subscript(self.index()))
+        }
+    }
+}
+
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct Binder(pub Variable, pub Expression, pub Expression);
 
@@ -178,13 +188,7 @@ impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Hole => write!(f, "◻"),
-            Self::Sort(rank) => {
-                if rank.index() == 0 {
-                    write!(f, "*")
-                } else {
-                    write!(f, "𝒰{}", to_subscript(rank.index()))
-                }
-            }
+            Self::Sort(rank) => write!(f, "{}", rank),
             Self::Variable(variable) => write!(f, "{}", variable),
             Self::Binder(BinderType::Abstraction, box Binder(variable, type_, body)) => {
                 let type_ = match type_ {
