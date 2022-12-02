@@ -4,12 +4,12 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use crate::{result::ResultExt, eval::substitute};
-use crate::{eval::beta_reduce, result::Result};
 use crate::{
-    eval::{alpha_eq},
+    eval::alpha_eq,
     expr::{Binder, BinderType, Expression, Variable},
 };
+use crate::{eval::beta_reduce, result::Result};
+use crate::{eval::substitute, result::ResultExt};
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum Context<'a> {
@@ -67,10 +67,12 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
     let result = || match expr {
         Expression::Hole => Result::Ok(Expression::Hole),
         Expression::Sort(i) => Result::Ok(Expression::sort(i.index() + 1)),
+
         Expression::Variable(v) => match context.get(v) {
             Some(t) => Result::Ok(t),
             None => error!("variable {} not found in context {}", v, context).into(),
         },
+
         Expression::Binder(binder_type, box Binder(v, type_, body)) => {
             let body_context = context.clone().extend(v.clone(), Cow::Borrowed(type_));
             match binder_type {
@@ -78,12 +80,12 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
                     let body_type = resolve_type(body, &body_context).chain_error(|| {
                         error!("failed to resolve type of body of abstraction {}", expr)
                     })?;
-                    // let product_variable = Variable::new("t").freshen_with_context(context);
                     Result::Ok(Expression::product(v.clone(), type_.clone(), body_type))
                 }
                 BinderType::Product => Result::Ok(Expression::sort(0)),
             }
         }
+
         Expression::Application(app_lhs, app_rhs) => {
             let app_lhs_type = resolve_type(app_lhs, context).chain_error(|| {
                 error!("failed to resolve type of function in application {}", expr)
@@ -93,22 +95,18 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
                     let app_rhs_type = resolve_type(app_rhs, context).chain_error(|| {
                         error!("failed to resolve type of argument in application {}", expr)
                     })?;
-                    
+
                     types_match(&type_, &app_rhs_type)
-                    .map(|_| {
-                        // If the argument type is a sort, we have to β-reduce
-                        if let Expression::Sort(_) = app_rhs_type {
+                        .map(|_| {
+                            // If the argument type is a sort, we have to β-reduce
                             substitute(&body, _v, &app_rhs.clone())
-                        } else {
-                            body.clone()
-                        }
-                    })
-                    .chain_error(|| {
-                        error!(
-                            "type mismatch in application {}: expected {}, got {}",
-                            expr, type_, app_rhs_type
-                        )
-                    })
+                        })
+                        .chain_error(|| {
+                            error!(
+                                "type mismatch in application {}: expected {}, got {}",
+                                expr, type_, app_rhs_type
+                            )
+                        })
                 }
                 _ => error!(
                     "expected abstraction in application {}, got {}",
@@ -119,13 +117,18 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
         }
     };
 
-    result().chain_error(|| error!("failed to resolve type of {}", expr))
+    result()
+        .map(|x| beta_reduce(&x))
+        .chain_error(|| error!("failed to resolve type of {}", expr))
 }
 
 pub fn types_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
     let lhs_beta_reduced = beta_reduce(lhs);
     let rhs_beta_reduced = beta_reduce(rhs);
-    if lhs_beta_reduced == Expression::Hole || rhs_beta_reduced == Expression::Hole || alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced) {
+    if lhs_beta_reduced == Expression::Hole
+        || rhs_beta_reduced == Expression::Hole
+        || alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced)
+    {
         Ok(())
     } else {
         error!(

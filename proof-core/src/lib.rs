@@ -8,4 +8,5 @@ pub mod eval;
 pub mod expr;
 pub mod goals;
 pub mod parse;
+pub mod scope;
 pub mod types;

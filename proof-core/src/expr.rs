@@ -1,12 +1,12 @@
 use std::{
     collections::HashSet,
-    fmt::{write, Display},
+    fmt::Display,
 };
 
 use crate::{eval::free_variables, types::Context};
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub struct Variable(String, Option<u32>);
+pub struct Variable(pub String, pub Option<u32>);
 
 impl Variable {
     pub fn new(name: &str) -> Self {
@@ -74,7 +74,7 @@ impl From<&str> for Variable {
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug, Copy)]
-pub struct SortRank(u32);
+pub struct SortRank(pub u32);
 
 impl SortRank {
     pub fn new(rank: u32) -> Self {
@@ -147,7 +147,7 @@ impl Expression {
     }
 
     pub fn arrow(type_: Expression, body: Expression) -> Self {
-        Self::product(Variable::new("t"), type_, body)
+        Self::product(Variable::new("t").freshen(&free_variables(&body)), type_, body)
     }
 
     pub fn abstraction(variable: Variable, type_: Expression, body: Expression) -> Self {

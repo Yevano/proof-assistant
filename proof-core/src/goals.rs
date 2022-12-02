@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    eval::{beta_reduce_step},
+    eval::{beta_reduce_step, beta_reduce},
     expr::{Binder, BinderType, Expression},
     result::*,
     types::{resolve_type, Context},
@@ -27,7 +27,19 @@ impl<'a> Goal<'a> {
 
 impl Display for Goal<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}\n⊢ {}", self.context, self.goal_constraint)
+        let mut context = &self.context;
+        loop {
+            match context {
+                Context::Empty => {
+                    break;
+                }
+                Context::Extend(box next_context, variable, expression) => {
+                    context = next_context;
+                    writeln!(f, "{} : {}", variable, expression)?;
+                }
+            }
+        }
+        write!(f, "⊢ {}", self.goal_constraint)
     }
 }
 
@@ -59,11 +71,11 @@ impl Display for Constraint {
             Constraint::Equal(EqConstraint {
                 actual_value,
                 expected_value,
-            }) => write!(f, "{} = {}", actual_value, expected_value),
+            }) => write!(f, "{} = {}", actual_value, beta_reduce(expected_value)),
             Constraint::HasType(TypeConstraint {
                 expression,
                 expected_type,
-            }) => write!(f, "{} : {}", expression, expected_type),
+            }) => write!(f, "{} : {}", expression, beta_reduce(expected_type)),
         }
     }
 }
@@ -95,6 +107,8 @@ fn find_eq_goals<'a>(
     actual_value: Cow<'a, Expression>,
     expected_value: Cow<'a, Expression>,
 ) -> Result<Vec<Goal<'a>>> {
+    let expected_value: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expected_value));
+
     match actual_value.borrow() {
         Expression::Hole => Ok(vec![Goal::new(
             context,
@@ -138,8 +152,32 @@ fn find_eq_goals<'a>(
                 }
             }
             _ => error!("Expected value is not a binder").into(),
-        },
-        Expression::Application(_, _) => todo!(),
+        }
+        Expression::Application(a, b) => {
+            match expected_value.into_owned() {
+                Expression::Application(e, f) => {
+                    let lhs_goals_result = find_eq_goals(context.clone(), Cow::Owned(*a.clone()), Cow::Owned(*e));
+                    let rhs_goals_result = find_eq_goals(context.clone(), Cow::Owned(*b.clone()), Cow::Owned(*f));
+                    let mut error_list = ErrorList::new();
+                    error_list.push_if_error(|| lhs_goals_result.clone());
+                    error_list.push_if_error(|| rhs_goals_result.clone());
+                    error_list.into_result(
+                        || {
+                            let lhs_goals = lhs_goals_result.unwrap();
+                            let rhs_goals = rhs_goals_result.unwrap();
+
+                            let lhs_goals_iter = lhs_goals.iter();
+                            let rhs_goals_iter = rhs_goals.iter();
+                            let chained = lhs_goals_iter.chain(rhs_goals_iter);
+                            let cloned_iter = chained.cloned();
+                            cloned_iter.collect()
+                        },
+                        || error!("Failed to match application")
+                    )
+                }
+                e => error!("Expected {}, got application {}", e, actual_value).into()
+            }
+        }
         _ => {
             if actual_value == Cow::Owned(beta_reduce_step(expected_value.borrow())) {
                 Ok(vec![])
@@ -159,6 +197,9 @@ fn find_expected_type_goals<'a>(
     expression: Cow<'a, Expression>,
     expected_type: Cow<'a, Expression>,
 ) -> Result<Vec<Goal<'a>>> {
+    let expression: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expression));
+    let expected_type: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expected_type));
+
     match expression.borrow() {
         Expression::Sort(_) => todo!("Sorts are not implemented yet"),
         Expression::Variable(variable) => {
