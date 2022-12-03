@@ -27,17 +27,8 @@ impl<'a> Goal<'a> {
 
 impl Display for Goal<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        let mut context = &self.context;
-        loop {
-            match context {
-                Context::Empty => {
-                    break;
-                }
-                Context::Extend(box next_context, variable, expression) => {
-                    context = next_context;
-                    writeln!(f, "{} : {}", variable, expression)?;
-                }
-            }
+        for (variable, type_) in self.context.iter().collect::<Vec<_>>().iter().rev() {
+            writeln!(f, "{} : {}", variable, type_)?;
         }
         write!(f, "⊢ {}", self.goal_constraint)
     }

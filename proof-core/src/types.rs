@@ -45,6 +45,10 @@ impl<'a> Context<'a> {
             }
         }
     }
+
+    pub fn iter(&self) -> ContextIter<'_> {
+        ContextIter { context: self }
+    }
 }
 
 // implement Display for Context
@@ -58,6 +62,24 @@ impl<'a> Display for Context<'a> {
             }
             Context::Extend(box context, variable, expression) => {
                 write!(f, "{}    {}: {}", context, variable, expression)
+            }
+        }
+    }
+}
+
+pub struct ContextIter<'a> {
+    context: &'a Context<'a>,
+}
+
+impl<'a> Iterator for ContextIter<'a> {
+    type Item = (Variable, Expression);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.context {
+            Context::Empty => None,
+            Context::Extend(box context, ref variable, ref expression) => {
+                self.context = context;
+                Some((variable.clone(), expression.clone().into_owned()))
             }
         }
     }
