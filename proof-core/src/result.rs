@@ -97,9 +97,10 @@ impl<T> From<ErrorInfo> for Result<T> {
     }
 }
 
+#[macro_export]
 macro_rules! error {
     ($($tokens:tt)+) => {
-        crate::result::ErrorInfo {
+        $crate::result::ErrorInfo {
             file: file!(), line: line!(), column: column!(), message: format!($($tokens)+),
         }
     };

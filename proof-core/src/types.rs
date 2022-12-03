@@ -4,12 +4,12 @@ use std::{
     fmt::{Display, Formatter},
 };
 
-use crate::{
-    eval::alpha_eq,
-    expr::{Binder, BinderType, Expression, Variable},
-};
 use crate::{eval::beta_reduce, result::Result};
 use crate::{eval::substitute, result::ResultExt};
+use crate::{
+    expr::{Binder, BinderType, Expression, Variable},
+    goals::expressions_match,
+};
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum Context<'a> {
@@ -82,7 +82,8 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
                     })?;
                     Result::Ok(Expression::product(v.clone(), type_.clone(), body_type))
                 }
-                BinderType::Product => Result::Ok(Expression::sort(0)),
+                BinderType::Product => resolve_type(body, &body_context)
+                    .chain_error(|| error!("failed to resolve type of body of product {}", expr)),
             }
         }
 
@@ -96,11 +97,8 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
                         error!("failed to resolve type of argument in application {}", expr)
                     })?;
 
-                    types_match(&type_, &app_rhs_type)
-                        .map(|_| {
-                            // If the argument type is a sort, we have to β-reduce
-                            substitute(&body, _v, &app_rhs.clone())
-                        })
+                    expressions_match(&type_, &app_rhs_type)
+                        .map(|_| substitute(&body, _v, &app_rhs.clone()))
                         .chain_error(|| {
                             error!(
                                 "type mismatch in application {}: expected {}, got {}",
@@ -120,21 +118,4 @@ pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> 
     result()
         .map(|x| beta_reduce(&x))
         .chain_error(|| error!("failed to resolve type of {}", expr))
-}
-
-pub fn types_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
-    let lhs_beta_reduced = beta_reduce(lhs);
-    let rhs_beta_reduced = beta_reduce(rhs);
-    if lhs_beta_reduced == Expression::Hole
-        || rhs_beta_reduced == Expression::Hole
-        || alpha_eq(&lhs_beta_reduced, &rhs_beta_reduced)
-    {
-        Ok(())
-    } else {
-        error!(
-            "{} does not match with {} (beta reduced to {} and {}, not α-equivalent)",
-            lhs, rhs, lhs_beta_reduced, rhs_beta_reduced
-        )
-        .into()
-    }
 }

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    eval::{beta_reduce_step, beta_reduce},
+    eval::{beta_reduce, beta_reduce_step, get_compatible_bound_variable, substitute},
     expr::{Binder, BinderType, Expression},
     result::*,
     types::{resolve_type, Context},
@@ -109,12 +109,15 @@ fn find_eq_goals<'a>(
 ) -> Result<Vec<Goal<'a>>> {
     let expected_value: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expected_value));
 
-    match actual_value.borrow() {
+    let result = match actual_value.borrow() {
         Expression::Hole => Ok(vec![Goal::new(
             context,
             Cow::Owned(Constraint::Equal(EqConstraint {
                 actual_value: Expression::Hole,
-                expected_value: expected_value.into_owned(),
+                expected_value: <std::borrow::Cow<'_, Expression> as std::borrow::Borrow<
+                    Expression,
+                >>::borrow(&expected_value)
+                .clone(),
             })),
         )]),
         Expression::Binder(
@@ -152,32 +155,38 @@ fn find_eq_goals<'a>(
                 }
             }
             _ => error!("Expected value is not a binder").into(),
-        }
-        Expression::Application(a, b) => {
-            match expected_value.into_owned() {
-                Expression::Application(e, f) => {
-                    let lhs_goals_result = find_eq_goals(context.clone(), Cow::Owned(*a.clone()), Cow::Owned(*e));
-                    let rhs_goals_result = find_eq_goals(context.clone(), Cow::Owned(*b.clone()), Cow::Owned(*f));
-                    let mut error_list = ErrorList::new();
-                    error_list.push_if_error(|| lhs_goals_result.clone());
-                    error_list.push_if_error(|| rhs_goals_result.clone());
-                    error_list.into_result(
-                        || {
-                            let lhs_goals = lhs_goals_result.unwrap();
-                            let rhs_goals = rhs_goals_result.unwrap();
+        },
+        Expression::Application(a, b) => match expected_value.borrow() {
+            Expression::Application(e, f) => {
+                let lhs_goals_result = find_eq_goals(
+                    context.clone(),
+                    Cow::Owned(*a.clone()),
+                    Cow::Owned(*e.clone()),
+                );
+                let rhs_goals_result = find_eq_goals(
+                    context.clone(),
+                    Cow::Owned(*b.clone()),
+                    Cow::Owned(*f.clone()),
+                );
+                let mut error_list = ErrorList::new();
+                error_list.push_if_error(|| lhs_goals_result.clone());
+                error_list.push_if_error(|| rhs_goals_result.clone());
+                error_list.into_result(
+                    || {
+                        let lhs_goals = lhs_goals_result.unwrap();
+                        let rhs_goals = rhs_goals_result.unwrap();
 
-                            let lhs_goals_iter = lhs_goals.iter();
-                            let rhs_goals_iter = rhs_goals.iter();
-                            let chained = lhs_goals_iter.chain(rhs_goals_iter);
-                            let cloned_iter = chained.cloned();
-                            cloned_iter.collect()
-                        },
-                        || error!("Failed to match application")
-                    )
-                }
-                e => error!("Expected {}, got application {}", e, actual_value).into()
+                        let lhs_goals_iter = lhs_goals.iter();
+                        let rhs_goals_iter = rhs_goals.iter();
+                        let chained = lhs_goals_iter.chain(rhs_goals_iter);
+                        let cloned_iter = chained.cloned();
+                        cloned_iter.collect()
+                    },
+                    || error!("Failed to match application"),
+                )
             }
-        }
+            e => error!("Expected {}, got application {}", e, actual_value).into(),
+        },
         _ => {
             if actual_value == Cow::Owned(beta_reduce_step(expected_value.borrow())) {
                 Ok(vec![])
@@ -189,7 +198,16 @@ fn find_eq_goals<'a>(
                 .into()
             }
         }
-    }
+    };
+
+    result.chain_error(|| {
+        let expected_value = &expected_value;
+        error!(
+            "Could not find goals for constraint {} = {}",
+            actual_value,
+            expected_value.clone()
+        )
+    })
 }
 
 fn find_expected_type_goals<'a>(
@@ -200,7 +218,7 @@ fn find_expected_type_goals<'a>(
     let expression: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expression));
     let expected_type: Cow<'a, Expression> = Cow::Owned(beta_reduce(&expected_type));
 
-    match expression.borrow() {
+    let result = match expression.borrow() {
         Expression::Sort(_) => todo!("Sorts are not implemented yet"),
         Expression::Variable(variable) => {
             let actual_type = context
@@ -248,7 +266,8 @@ fn find_expected_type_goals<'a>(
                     right, left_argument_type
                 )
             });
-            let substituted_body = beta_reduce_step(&Expression::application(*left.clone(), *right.clone()));
+            let substituted_body =
+                beta_reduce_step(&Expression::application(*left.clone(), *right.clone()));
             let body_type = resolve_type(&substituted_body, &context).chain_error(|| {
                 error!(
                     "Could not resolve type of body in application {}",
@@ -257,17 +276,19 @@ fn find_expected_type_goals<'a>(
             });
             error_list.push_if_error(|| goals.clone());
             error_list.push_if_error(|| body_type.clone());
-            error_list.into_result(|| goals.unwrap(), || error!("Could not find typing goal for application {}", expression))
+            error_list.into_result(
+                || goals.unwrap(),
+                || error!("Could not find typing goal for application {}", expression),
+            )
         }
         Expression::Binder(
             BinderType::Abstraction,
             box Binder(bound_variable, bound_variable_type, body),
         ) => {
-            let expected_type = expected_type.borrow();
             if let Expression::Binder(
                 BinderType::Product,
                 box Binder(_, expected_variable_type, expected_binder_body),
-            ) = expected_type
+            ) = expected_type.borrow()
             {
                 let mut goals = find_eq_goals(
                     context.clone(),
@@ -280,6 +301,7 @@ fn find_expected_type_goals<'a>(
                         expression
                     )
                 })?;
+
                 let body_context = context.extend(
                     bound_variable.clone(),
                     Cow::Owned(bound_variable_type.clone()),
@@ -297,6 +319,8 @@ fn find_expected_type_goals<'a>(
                 })?;
                 goals.append(&mut body_goals);
                 Ok(goals)
+            } else if expected_type.clone().into_owned() == Expression::Hole {
+                Ok(vec![])
             } else {
                 error!("Expected type is not a product").into()
             }
@@ -309,10 +333,92 @@ fn find_expected_type_goals<'a>(
         }
         Expression::Hole => {
             let constraint = Constraint::HasType(TypeConstraint {
-                expression: expression.into_owned(),
-                expected_type: expected_type.into_owned(),
+                expression:
+                    <std::borrow::Cow<'_, Expression> as std::borrow::Borrow<Expression>>::borrow(
+                        &expression,
+                    )
+                    .clone(),
+                expected_type: <std::borrow::Cow<'_, Expression> as std::borrow::Borrow<
+                    Expression,
+                >>::borrow(&expected_type)
+                .clone(),
             });
             Result::Ok(vec![Goal::new(context, Cow::Owned(constraint))])
         }
+    };
+
+    result.chain_error(|| {
+        let expected_type = &expected_type;
+        error!(
+            "Could not find goals for constraint {} : {}",
+            expression,
+            expected_type.clone()
+        )
+    })
+}
+
+/// Determines whether two expressions are either equivalent or pattern match up to holes.
+pub fn expressions_match(lhs: &Expression, rhs: &Expression) -> Result<()> {
+    let lhs_beta_reduced = beta_reduce(lhs);
+    let rhs_beta_reduced = beta_reduce(rhs);
+
+    match (lhs_beta_reduced, rhs_beta_reduced) {
+        (Expression::Hole, _) => Ok(()),
+        (_, Expression::Hole) => Ok(()),
+        (Expression::Sort(a), Expression::Sort(b)) => {
+            if a == b {
+                Ok(())
+            } else {
+                error!("{} != {}", a, b).into()
+            }
+        }
+        (Expression::Variable(a), Expression::Variable(b)) => {
+            if a == b {
+                Ok(())
+            } else {
+                error!("variables {} and {} are not equivalent", a, b).into()
+            }
+        }
+        (
+            Expression::Binder(
+                lhs_binder_type,
+                box Binder(lhs_variable, lhs_variable_type, lhs_body),
+            ),
+            Expression::Binder(
+                rhs_binder_type,
+                box Binder(rhs_variable, rhs_variable_type, rhs_body),
+            ),
+        ) => {
+            let variable =
+                get_compatible_bound_variable(&lhs_variable, &lhs_body, &rhs_variable, &rhs_body);
+            let lhs_body = substitute(
+                &lhs_body,
+                lhs_variable,
+                &Expression::Variable(variable.clone()),
+            );
+            let rhs_body = substitute(&rhs_body, rhs_variable, &Expression::Variable(variable));
+
+            if lhs_binder_type != rhs_binder_type {
+                error!(
+                    "binder types ({}, {}) do not match",
+                    lhs_binder_type, rhs_binder_type
+                )
+                .into()
+            } else {
+                let mut error_list = ErrorList::new();
+                error_list
+                    .push_if_error(|| expressions_match(&lhs_variable_type, &rhs_variable_type));
+                error_list.push_if_error(|| expressions_match(&lhs_body, &rhs_body));
+                error_list.into_result(|| (), || error!("expressions do not match"))
+            }
+        }
+        (Expression::Application(lhs_a, lhs_b), Expression::Application(rhs_a, rhs_b)) => {
+            let mut error_list = ErrorList::new();
+            error_list.push_if_error(|| expressions_match(&lhs_a, &rhs_a));
+            error_list.push_if_error(|| expressions_match(&lhs_b, &rhs_b));
+            error_list.into_result(|| (), || error!("expressions do not match"))
+        }
+        (a, b) => error!("{} and {} do not match", a, b).into(),
     }
+    .chain_error(|| error!("{} and {} do not match", lhs, rhs))
 }

@@ -1,4 +1,7 @@
-use std::{borrow::Borrow, collections::hash_set::HashSet};
+use std::{
+    borrow::{Borrow, Cow},
+    collections::hash_set::HashSet,
+};
 
 use crate::expr::{Binder, Expression, Variable};
 
@@ -128,36 +131,20 @@ fn it_substitutes_product() {
 
     assert_eq!(
         substitute(
-            &Expression::product(
-                "x".into(),
-                "x".into(),
-                "b".into()
-            ),
+            &Expression::product("x".into(), "x".into(), "b".into()),
             "x".into(),
             &"y".into()
         ),
-        Expression::product(
-            "x".into(),
-            "y".into(),
-            "b".into()
-        )
+        Expression::product("x".into(), "y".into(), "b".into())
     );
 
     assert_eq!(
         substitute(
-            &Expression::product(
-                "x".into(),
-                "a".into(),
-                "b".into()
-            ),
+            &Expression::product("x".into(), "a".into(), "b".into()),
             "b".into(),
             &"y".into()
         ),
-        Expression::product(
-            "x".into(),
-            "a".into(),
-            "y".into()
-        )
+        Expression::product("x".into(), "a".into(), "y".into())
     );
 
     assert_eq!(
@@ -182,53 +169,29 @@ fn it_substitutes_product() {
 fn it_substitutes_abstraction() {
     assert_eq!(
         substitute(
-            &Expression::abstraction(
-                "x".into(),
-                "a".into(),
-                "b".into()
-            ),
+            &Expression::abstraction("x".into(), "a".into(), "b".into()),
             "x".into(),
             &"y".into()
         ),
-        Expression::abstraction(
-            "x".into(),
-            "a".into(),
-            "b".into()
-        )
+        Expression::abstraction("x".into(), "a".into(), "b".into())
     );
 
     assert_eq!(
         substitute(
-            &Expression::abstraction(
-                "x".into(),
-                "x".into(),
-                "b".into()
-            ),
+            &Expression::abstraction("x".into(), "x".into(), "b".into()),
             "x".into(),
             &"y".into()
         ),
-        Expression::abstraction(
-            "x".into(),
-            "y".into(),
-            "b".into()
-        )
+        Expression::abstraction("x".into(), "y".into(), "b".into())
     );
 
     assert_eq!(
         substitute(
-            &Expression::abstraction(
-                "x".into(),
-                "a".into(),
-                "b".into()
-            ),
+            &Expression::abstraction("x".into(), "a".into(), "b".into()),
             "b".into(),
             &"y".into()
         ),
-        Expression::abstraction(
-            "x".into(),
-            "a".into(),
-            "y".into()
-        )
+        Expression::abstraction("x".into(), "a".into(), "y".into())
     );
 
     assert_eq!(
@@ -355,7 +318,28 @@ pub fn get_compatible_bound_variable(
     } else if !combined_free_variables.contains(x2) {
         x2.clone()
     } else {
-        Variable::new_with_ss("x", 1).freshen(&combined_free_variables)
+        x1.freshen(&combined_free_variables)
+    }
+}
+
+pub fn adapt_binder_variables(binder1: &Binder, binder2: &Binder) -> (Binder, Binder) {
+    let binders: (&Binder, &Binder) = (binder1, binder2);
+    let (
+        Binder(binder1_variable, binder1_variable_type, binder1_body),
+        Binder(binder2_variable, binder2_variable_type, binder2_body),
+    ) = binders;
+    {
+        let compatible_variable: Cow<'_, Variable> = Cow::Owned(get_compatible_bound_variable(
+            binder1_variable,
+            binder1_body,
+            binder2_variable,
+            binder2_body,
+        ));
+
+        let binder1_body = substitute(binder1_body, binder1_variable.clone(), &Expression::Variable(compatible_variable.clone().into_owned()));
+        let binder2_body = substitute(binder2_body, binder2_variable.clone(), &Expression::Variable(compatible_variable.clone().into_owned()));
+
+        (Binder(compatible_variable.clone().into_owned(), binder1_variable_type.clone(), binder1_body), Binder(compatible_variable.clone().into_owned(), binder2_variable_type.clone(), binder2_body))
     }
 }
 
@@ -377,25 +361,21 @@ pub fn alpha_eq(a: &Expression, b: &Expression) -> bool {
                 return false;
             }
 
-            let (box Binder(a_x, a_x_type, a_body), box Binder(b_x, b_x_type, b_body)) = (a_binder, b_binder);
+            let (box Binder(a_x, a_x_type, a_body), box Binder(b_x, b_x_type, b_body)) =
+                (a_binder, b_binder);
 
             if !alpha_eq(&a_x_type, &b_x_type) {
                 return false;
             }
 
-            let fresh_variable =
-                get_compatible_bound_variable(&a_x, &a_body, &b_x, &b_body);
+            let fresh_variable = get_compatible_bound_variable(&a_x, &a_body, &b_x, &b_body);
 
             let a_body = substitute(
                 &a_body,
                 a_x.clone(),
                 &Expression::Variable(fresh_variable.clone()),
             );
-            let b_body = substitute(
-                &b_body,
-                b_x.clone(),
-                &Expression::Variable(fresh_variable),
-            );
+            let b_body = substitute(&b_body, b_x.clone(), &Expression::Variable(fresh_variable));
             alpha_eq(&a_body, &b_body)
         }
         _ => false,

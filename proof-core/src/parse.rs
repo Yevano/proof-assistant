@@ -1,3 +1,4 @@
+use proc_macro2::Delimiter::Parenthesis;
 use quote::{quote, ToTokens};
 use syn::{
     parenthesized,
@@ -54,11 +55,15 @@ fn parse_sort(input: ParseStream) -> syn::Result<Expression> {
     input.parse::<syn::Token!(*)>()?;
     let rank = input
         .step(|cursor| {
-            if let Some((lit, cursor)) = cursor.literal() {
-                lit.to_string()
-                    .parse::<u32>()
-                    .map(|i| (i, cursor))
-                    .map_err(|_| input.error("expected integer literal"))
+            if let Some((inner_cursor, _, cursor)) = cursor.group(Parenthesis) {
+                if let Some((lit, _)) = inner_cursor.literal() {
+                    lit.to_string()
+                        .parse::<u32>()
+                        .map(|i| (i, cursor))
+                        .map_err(|_| input.error("expected integer literal"))
+                } else {
+                    Err(input.error("expected literal"))
+                }
             } else {
                 Err(input.error("expected literal"))
             }

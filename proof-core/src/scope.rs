@@ -3,8 +3,9 @@ use std::borrow::Cow;
 use crate::{
     eval::{beta_reduce, substitute},
     expr::{Expression, Variable},
+    goals::expressions_match,
     result::{Result, ResultExt},
-    types::{resolve_type, types_match, Context},
+    types::{resolve_type, Context},
 };
 
 #[derive(Clone)]
@@ -37,15 +38,13 @@ impl<'a> DefinitionScope<'a> {
                 expression.clone()
             )
         })?;
-        self.definitions
-            .push(Definition {
-                variable: variable.clone(),
-                type_: type_.clone(),
-                value: expression,
-                value_substituted: substituted_expression,
-                // (variable.clone(), type_.clone(), expression)
-                
-            });
+        self.definitions.push(Definition {
+            variable: variable.clone(),
+            type_: type_.clone(),
+            value: expression,
+            value_substituted: substituted_expression,
+            // (variable.clone(), type_.clone(), expression)
+        });
         self.context = self.context.clone().extend(variable, Cow::Owned(type_));
         Ok(())
     }
@@ -53,7 +52,13 @@ impl<'a> DefinitionScope<'a> {
     pub fn substitute(&self, expression: &Expression) -> Expression {
         let mut expression = expression.clone();
 
-        for Definition { variable, type_: _, value: _, value_substituted } in self.definitions.iter() {
+        for Definition {
+            variable,
+            type_: _,
+            value: _,
+            value_substituted,
+        } in self.definitions.iter()
+        {
             expression = substitute(&expression, variable.clone(), value_substituted);
         }
 
@@ -61,13 +66,27 @@ impl<'a> DefinitionScope<'a> {
     }
 
     pub fn show_all(&self) -> Result<()> {
-        for Definition { variable, type_, value, value_substituted } in self.definitions.iter() {
+        for Definition {
+            variable,
+            type_,
+            value,
+            value_substituted,
+        } in self.definitions.iter()
+        {
             println!("{}  : {}", variable, type_);
             println!("{}  = {}", variable, value);
             println!("{} β= {}", variable, beta_reduce(&value_substituted));
             println!();
         }
 
+        Ok(())
+    }
+
+    pub fn show_type(&self, expression: Expression) -> Result<()> {
+        let substituted_expression = self.substitute(&expression);
+        let type_ = resolve_type(&substituted_expression, &self.context)
+            .chain_error(|| error!("could not resolve type of value {}", expression))?;
+        println!("{} : {}", expression, type_);
         Ok(())
     }
 
@@ -85,7 +104,7 @@ impl<'a> DefinitionScope<'a> {
         let substituted_type = self.substitute(&type_);
         let value_type = resolve_type(&substituted_value, &self.context)
             .chain_error(|| error!("could not resolve type of value {}", value.clone()))?;
-        types_match(&value_type, &substituted_type)
+        expressions_match(&value_type, &substituted_type)
             .chain_error(|| error!("type check {} : {} failed!", value.clone(), type_.clone()))?;
         println!("Sucess! {} : {}", value, type_);
         Ok(())

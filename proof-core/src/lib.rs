@@ -1,6 +1,7 @@
 #![feature(box_patterns)]
 #![feature(result_flattening)]
 #![allow(clippy::needless_borrow)]
+#![feature(let_chains)]
 
 #[macro_use]
 pub mod result;
