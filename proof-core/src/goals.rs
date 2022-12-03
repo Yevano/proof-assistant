@@ -278,7 +278,7 @@ fn find_expected_type_goals<'a>(
         ) => {
             if let Expression::Binder(
                 BinderType::Product,
-                box Binder(_, expected_variable_type, expected_binder_body),
+                box Binder(expected_variable, expected_variable_type, expected_binder_body),
             ) = expected_type.borrow()
             {
                 let mut goals = find_eq_goals(
@@ -297,10 +297,17 @@ fn find_expected_type_goals<'a>(
                     bound_variable.clone(),
                     Cow::Owned(bound_variable_type.clone()),
                 );
+
+                let substituted_expected_body = substitute(
+                    expected_binder_body,
+                    expected_variable.clone(),
+                    &bound_variable.clone().into(),
+                );
+
                 let mut body_goals = find_expected_type_goals(
                     body_context,
                     Cow::Owned(body.clone()),
-                    Cow::Owned(expected_binder_body.clone()),
+                    Cow::Owned(substituted_expected_body),
                 )
                 .chain_error(|| {
                     error!(
