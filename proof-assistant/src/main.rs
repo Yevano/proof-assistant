@@ -1,15 +1,15 @@
 #![allow(mixed_script_confusables)]
-use std::borrow::Cow;
+#![allow(confusable_idents)]
+
+#[cfg(test)]
+mod tests;
 
 use proof_core::{
-    eval::beta_reduce,
-    expr::{Expression, Variable},
-    goals::{find_goals, Constraint, Goal, TypeConstraint},
+    goals::{find_goals, Constraint, TypeConstraint},
     result::ResultExt,
     scope::DefinitionScope,
-    types::resolve_type,
-    types::Context,
 };
+
 use proof_impl::expr;
 
 macro_rules! check {
@@ -50,11 +50,12 @@ fn scope_test() {
     def!(scope, Id := for α : *. for x : α. α);
 
     def!(scope, Void := Id => Id);
+
     show!(scope, Void);
 
     def!(scope, void := id Id);
 
-    check!(scope, (void) : (Void));
+    check!(scope, (void): (Void));
 
     def!(scope, Value := fun α : *. (α => α) => α);
     show!(scope, Value);
@@ -76,19 +77,11 @@ fn scope_test() {
 
     def!(scope, const := fun α : *. fun β : *. fun u : α. β);
 
-    def!(scope, Eq := fun α : *. fun x : α. fun y : α. for p : α => *. p x => p y);
-
-    def!(scope, refl := fun α : *. fun x : α. fun p : α => *. id (p x));
-
-    def!(scope, id_eq_id := refl Id id);
-
-    check!(scope, (id_eq_id) : (Eq Id id id));
-
     def!(scope, Nat := for α : *. (α => α) => α => α);
 
     def!(scope, zero := fun α : *. fun f : α => α. fun x : α. x);
 
-    check!(scope, (zero) : (Nat));
+    check!(scope, (zero): (Nat));
 
     def!(scope, succ := fun n : Nat. fun α : *. fun f : α => α. fun x : α. f (n α f x));
 
@@ -106,30 +99,33 @@ fn scope_test() {
 
     def!(scope, Not := fun α : *. α => Bot);
 
-    def!(scope, And := fun α : *. fun β : *. for τ : *. (α => β => τ) => τ);
+    def!(scope, And := fun α : *. fun β : *. for γ : *. (α => β => γ) => γ);
 
     def!(scope, pair :=
         fun α : *.
         fun β : *.
         fun x : α.
         fun y : β.
-        fun τ : *.
-        fun pair1 : (α => β => τ). pair1 x y
+        fun γ : *.
+        fun arg : (α => β => γ). arg x y
     );
 
-    def!(scope, fst := fun α : *. fun β : *. fun x : And α β. x α (fun a : α. fun b : β. a));
+    def!(scope, fst := fun P : *. fun Q : *. fun x : And P Q. x P (fun a : P. fun b : Q. a));
 
-    def!(scope, snd := fun α : *. fun β : *. fun x : And α β. x β (fun a : α. fun b : β. b));
+    def!(scope, snd := fun P : *. fun Q : *. fun x : And P Q. x Q (fun a : P. fun b : Q. b));
 
-    def!(scope, Or := fun α : *. fun β : *. for τ : *. (α => τ) => (β => τ) => τ);
+    def!(scope, swap_pair := fun P : *. fun Q : *. fun x : And P Q. pair Q P (snd P Q x) (fst P Q x));
+    check!(scope, (swap_pair) : (for P : *. for Q : *. And P Q => And Q P));
+
+    def!(scope, Or := fun α : *. fun β : *. for γ : *. (α => γ) => (β => γ) => γ);
 
     def!(scope, left :=
         fun α : *.
         fun β : *.
         fun x : α.
-        fun τ : *.
-        fun left1 : α => τ.
-        fun right1 : β => τ.
+        fun γ : *.
+        fun left1 : α => γ.
+        fun right1 : β => γ.
             left1 x
     );
 
@@ -137,72 +133,74 @@ fn scope_test() {
         fun α : *.
         fun β : *.
         fun y : β.
-        fun τ : *.
-        fun left1 : α => τ.
-        fun right1 : β => τ.
+        fun γ : *.
+        fun left1 : α => γ.
+        fun right1 : β => γ.
             right1 y
     );
 
-    // def!(scope, ValueNat := fun ValueNatK : *(1). fun ValueNat : ValueNatK. Or Void (ValueNat));
-    // show!(scope, ValueNat1);
+    def!(scope, Iff := fun P : *. fun Q : *. And (P => Q) (Q => P));
+    def!(scope, intro_iff := fun P : *. fun Q : *. pair (P => Q) (Q => P));
+    check!(scope, (intro_iff) : (for P : *. for Q : *. (P => Q) => (Q => P) => Iff P Q));
 
-    // def!(scope, ValueNat := ValueNat1 ValueNat1);
-    // show!(scope, ValueNat);
+    def!(scope, Eq := fun α : *. fun x : α. fun y : α. for P : α => *. Iff (P x) (P y));
 
-    // show_type!(scope, E * Void void);
+    def!(scope, refl := fun α : *. fun x : α. fun P : α => *. intro_iff (P x) (P x));
 
-    def!(scope, value_zero := fun α : *. left Void (Value α) void);
-
-    // def!(scope, value_succ := fun n : ValueNat. fun α : *. right Void (Value α) (value α n));
-
-    def!(scope, NatEq := Eq Nat);
+    def!(scope, EqNat := Eq Nat);
 
     check!(scope, (left) : (for α : *. for β : *. α => Or α β));
-
-    def!(scope, Lte := fun m : Nat. fun n : Nat. fun Lte : Nat => Nat => * => *. for τ : *. (NatEq m zero => τ) => (Lte (pred m) (pred n)) => τ);
-
-    // def!(scope, intro_lte_zero := fun n : Nat. fun τ : *. fun intro_lte_zero1 : NatEq n zero => τ. fun intro_lte_pred : Lte (pred m) (pred n). refl n zero);
-
-    // if a = b, S a = S b
-    def!(scope, TheoremSuccEq := for m : Nat. for n : Nat. NatEq m n => NatEq (succ m) (succ n));
 
     // scope.show_all().unwrap_chain();
     println!();
 
-    def!(scope, succ_eq := fun m : Nat. fun n : Nat. fun m_eq_n : NatEq m n. m_eq_n (fun x : Nat. Nat));
-
     def!(scope, TheoremLEM := for α : *. α => Or α (Not α));
     def!(scope, lem := fun α : *. fun x : α. left α (Not α) x);
-    check!(scope, (lem) : (TheoremLEM));
+    check!(scope, (lem): (TheoremLEM));
     show!(scope, lem);
 
     def!(scope, TheoremPOE := for α : *. Bot => α);
     def!(scope, poe := fun α : *. fun bottom : Bot. bottom α);
-    check!(scope, (poe) : (TheoremPOE));
+    check!(scope, (poe): (TheoremPOE));
     show!(scope, poe);
 
     def!(scope, TheoremDoubleNeg := for α : *. α => Not (Not α));
     def!(scope, double_neg := fun α : *. fun p : α. fun not_p : Not α. not_p p);
-    check!(scope, (double_neg) : (TheoremDoubleNeg));
+    check!(scope, (double_neg): (TheoremDoubleNeg));
     show!(scope, double_neg);
 
     def!(scope, TheoremLNC := for α : *. Not (And α (Not α)));
     def!(scope, lnc := fun α : *. fun p_and_not_p : And α (Not α). p_and_not_p Bot (fun p : α. fun not_p : Not α. not_p p));
-    check!(scope, (lnc) : (TheoremLNC));
+    check!(scope, (lnc): (TheoremLNC));
     show!(scope, lnc);
 
-    def!(scope, one := succ zero);
-    def!(scope, two := succ (succ zero));
-    check!(scope, (refl Nat ?) : (Eq Nat one two));
+    show!(scope, Eq);
 
     def!(scope, TheoremEqSymm := for α : *. for x : α. for y : α. Eq α x y => Eq α y x);
     def!(scope, eq_symm :=
-        fun α : *. fun x : α. fun y : α. fun eq : (for p : α => *. p x => p y). fun q : α => *. ?
+        fun α : *.
+        fun x : α.
+        fun y : α.
+        fun x_eq_y : Eq α x y.
+        fun P : (α => *).
+        swap_pair (P x => P y) (P y => P x) (x_eq_y P)
+    );
+    // TODO: Add tree walking to expression tree so that we can match to expressions for displaying pretty stuff like P <=> Q and x = y
+    check!(scope, (eq_symm): (TheoremEqSymm));
+    show!(scope, eq_symm);
+
+    def!(scope, TheoremSuccEq := for m : Nat. for n : Nat. EqNat m n => EqNat (succ m) (succ n));
+    def!(scope, succ_eq :=
+        fun m : Nat.
+        fun n : Nat.
+        fun m_eq_n : EqNat m n.
+        fun P : Nat => *.
+        ?
     );
 
     let constraint = Constraint::HasType(TypeConstraint {
-        expression: scope.substitute(&expr!(eq_symm)),
-        expected_type: scope.substitute(&expr!(TheoremEqSymm)),
+        expression: scope.substitute(&expr!(succ_eq)),
+        expected_type: scope.substitute(&expr!(TheoremSuccEq)),
     });
     let goals = find_goals(scope.context(), &constraint).unwrap_chain();
 
