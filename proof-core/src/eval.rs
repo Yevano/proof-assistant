@@ -336,10 +336,29 @@ pub fn adapt_binder_variables(binder1: &Binder, binder2: &Binder) -> (Binder, Bi
             binder2_body,
         ));
 
-        let binder1_body = substitute(binder1_body, binder1_variable.clone(), &Expression::Variable(compatible_variable.clone().into_owned()));
-        let binder2_body = substitute(binder2_body, binder2_variable.clone(), &Expression::Variable(compatible_variable.clone().into_owned()));
+        let binder1_body = substitute(
+            binder1_body,
+            binder1_variable.clone(),
+            &Expression::Variable(compatible_variable.clone().into_owned()),
+        );
+        let binder2_body = substitute(
+            binder2_body,
+            binder2_variable.clone(),
+            &Expression::Variable(compatible_variable.clone().into_owned()),
+        );
 
-        (Binder(compatible_variable.clone().into_owned(), binder1_variable_type.clone(), binder1_body), Binder(compatible_variable.clone().into_owned(), binder2_variable_type.clone(), binder2_body))
+        (
+            Binder(
+                compatible_variable.clone().into_owned(),
+                binder1_variable_type.clone(),
+                binder1_body,
+            ),
+            Binder(
+                compatible_variable.clone().into_owned(),
+                binder2_variable_type.clone(),
+                binder2_body,
+            ),
+        )
     }
 }
 

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    fmt::Display,
-};
+use std::{collections::HashSet, fmt::Display};
 
 use crate::{eval::free_variables, types::Context};
 
@@ -169,7 +166,11 @@ impl Expression {
     }
 
     pub fn arrow(type_: Expression, body: Expression) -> Self {
-        Self::product(Variable::new("t").freshen(&free_variables(&body)), type_, body)
+        Self::product(
+            Variable::new("t").freshen(&free_variables(&body)),
+            type_,
+            body,
+        )
     }
 
     pub fn abstraction(variable: Variable, type_: Expression, body: Expression) -> Self {

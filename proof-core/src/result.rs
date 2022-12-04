@@ -1,4 +1,8 @@
-use std::{rc::Rc, fmt::{Display, Formatter}, borrow::{Borrow, BorrowMut}};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    fmt::{Display, Formatter},
+    rc::Rc,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorInfo {
@@ -26,10 +30,19 @@ impl ErrorChain {
 fn display_chain(chain: &ErrorChain, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
     let indent_str = " ".repeat(indent);
     writeln!(f, "{}{}", indent_str, chain.error_info.message)?;
-    write!(f, "{}┗ {}:{}:{}", indent_str, chain.error_info.file, chain.error_info.line, chain.error_info.column)?;
+    write!(
+        f,
+        "{}┗ {}:{}:{}",
+        indent_str, chain.error_info.file, chain.error_info.line, chain.error_info.column
+    )?;
     let num_causes = chain.causes.len();
     if num_causes > 0 {
-        writeln!(f, " (due to {} error{}):", num_causes, if num_causes > 1 { "s" } else { "" })?;
+        writeln!(
+            f,
+            " (due to {} error{}):",
+            num_causes,
+            if num_causes > 1 { "s" } else { "" }
+        )?;
     } else {
         writeln!(f)?;
     }
@@ -119,12 +132,16 @@ impl ErrorList {
 
     pub fn push_if_error<T, F: FnOnce() -> Result<T>>(&mut self, result: F) {
         match result() {
-            Result::Ok(_) => {},
+            Result::Ok(_) => {}
             Result::Err(error_chain) => self.push(error_chain),
         }
     }
 
-    pub fn into_result<T, F: FnOnce() -> T, E: FnOnce() -> ErrorInfo>(&self, ok: F, err: E) -> Result<T> {
+    pub fn into_result<T, F: FnOnce() -> T, E: FnOnce() -> ErrorInfo>(
+        &self,
+        ok: F,
+        err: E,
+    ) -> Result<T> {
         if self.0.is_empty() {
             Result::Ok(ok())
         } else {

@@ -1,5 +1,4 @@
 #![allow(clippy::needless_borrow)] // allowed because there seems to be a bug in clippy which produces false positives
-
 #![feature(box_patterns)]
 #![feature(result_flattening)]
 #![feature(let_chains)]

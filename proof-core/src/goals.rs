@@ -130,7 +130,10 @@ fn find_eq_goals<'a>(
                 box Binder(expected_variable, expected_variable_type, expected_body),
             ) => {
                 if binder_type == expected_binder_type {
-                    let (Binder(adapted_variable, _, adapted_actual_body), Binder(_, _, adapted_expected_body)) = adapt_binder_variables(
+                    let (
+                        Binder(adapted_variable, _, adapted_actual_body),
+                        Binder(_, _, adapted_expected_body),
+                    ) = adapt_binder_variables(
                         &Binder(
                             actual_variable.clone(),
                             actual_variable_type.clone(),
@@ -149,10 +152,7 @@ fn find_eq_goals<'a>(
                         Cow::Owned(expected_variable_type.clone()),
                     )?;
                     goals.append(&mut find_eq_goals(
-                        context.extend(
-                            adapted_variable,
-                            Cow::Owned(actual_variable_type.clone()),
-                        ),
+                        context.extend(adapted_variable, Cow::Owned(actual_variable_type.clone())),
                         Cow::Owned(adapted_actual_body),
                         Cow::Owned(adapted_expected_body),
                     )?);
