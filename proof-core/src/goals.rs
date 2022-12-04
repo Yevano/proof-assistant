@@ -288,8 +288,8 @@ fn find_expected_type_goals<'a>(
                 )
                 .chain_error(|| {
                     error!(
-                        "Could not find goals for type of variable bound by abstraction {}",
-                        expression
+                        "Could not find goals for type of variable {} : {}. Expected type was {}.",
+                        bound_variable, bound_variable_type, expected_variable_type,
                     )
                 })?;
 
@@ -318,7 +318,7 @@ fn find_expected_type_goals<'a>(
                 goals.append(&mut body_goals);
                 Ok(goals)
             } else if expected_type.clone().into_owned() == Expression::Hole {
-                Ok(vec![])
+                unimplemented!("not sure if this should ever happen")
             } else {
                 error!("Expected type is not a product").into()
             }
