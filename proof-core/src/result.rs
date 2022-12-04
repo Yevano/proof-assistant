@@ -148,14 +148,14 @@ impl Display for ErrorList {
     }
 }
 
-impl Borrow<Vec<ErrorChain>> for ErrorList {
-    fn borrow(&self) -> &Vec<ErrorChain> {
+impl Borrow<[ErrorChain]> for ErrorList {
+    fn borrow(&self) -> &[ErrorChain] {
         &self.0
     }
 }
 
-impl BorrowMut<Vec<ErrorChain>> for ErrorList {
-    fn borrow_mut(&mut self) -> &mut Vec<ErrorChain> {
+impl BorrowMut<[ErrorChain]> for ErrorList {
+    fn borrow_mut(&mut self) -> &mut [ErrorChain] {
         &mut self.0
     }
 }
