@@ -325,10 +325,15 @@ fn find_expected_type_goals<'a>(
         }
         Expression::Binder(
             BinderType::Product,
-            box Binder(_bound_variable, _bound_variable_type, _body),
-        ) => {
-            todo!("find_expected_type_goals for product")
-        }
+            box Binder(bound_variable, bound_variable_type, body),
+        ) => find_expected_type_goals(
+            context.extend(
+                bound_variable.clone(),
+                Cow::Owned(bound_variable_type.clone()),
+            ),
+            Cow::Owned(body.clone()),
+            expected_type.clone(),
+        ),
         Expression::Hole => {
             let constraint = Constraint::HasType(TypeConstraint {
                 expression:
