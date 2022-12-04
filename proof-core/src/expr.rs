@@ -135,6 +135,18 @@ pub enum Expression {
     Application(Box<Expression>, Box<Expression>),
 }
 
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+pub struct MappedBinder<T>(Variable, MappedExpression<T>, MappedExpression<T>);
+
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+pub enum MappedExpression<T> {
+    Hole(T),
+    Sort(SortRank, T),
+    Variable(Variable, T),
+    Binder(BinderType, Box<MappedBinder<T>>, T),
+    Application(Box<MappedExpression<T>>, Box<MappedExpression<T>>, T),
+}
+
 impl Expression {
     pub fn hole() -> Self {
         Self::Hole
@@ -181,6 +193,28 @@ impl Expression {
 
     pub fn application(function: Expression, argument: Expression) -> Self {
         Self::Application(Box::new(function), Box::new(argument))
+    }
+
+    pub fn visit_map<R, F: Fn(&Self) -> R>(&self, f: &F) -> MappedExpression<R> {
+        match self {
+            Expression::Hole => MappedExpression::Hole(f(self)),
+            Expression::Sort(rank) => MappedExpression::Sort(*rank, f(self)),
+            Expression::Variable(name) => MappedExpression::Variable(name.clone(), f(self)),
+            Expression::Binder(binder_type, box Binder(variable, type_, body)) => {
+                MappedExpression::Binder(
+                    *binder_type,
+                    Box::new(MappedBinder(
+                        variable.clone(),
+                        Expression::visit_map(type_, f),
+                        Expression::visit_map(body, f),
+                    )),
+                    f(self),
+                )
+            }
+            Expression::Application(a, b) => {
+                MappedExpression::Application(a.visit_map(f).into(), b.visit_map(f).into(), f(self))
+            }
+        }
     }
 }
 
