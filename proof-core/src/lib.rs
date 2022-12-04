@@ -1,7 +1,9 @@
+#![allow(clippy::needless_borrow)] // allowed because there seems to be a bug in clippy which produces false positives
+
 #![feature(box_patterns)]
 #![feature(result_flattening)]
-#![allow(clippy::needless_borrow)]
 #![feature(let_chains)]
+#![feature(arbitrary_self_types)]
 
 #[macro_use]
 pub mod result;
