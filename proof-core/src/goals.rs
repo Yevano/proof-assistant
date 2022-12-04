@@ -4,7 +4,10 @@ use std::{
 };
 
 use crate::{
-    eval::{beta_reduce, beta_reduce_step, get_compatible_bound_variable, substitute},
+    eval::{
+        adapt_binder_variables, beta_reduce, beta_reduce_step, get_compatible_bound_variable,
+        substitute,
+    },
     expr::{Binder, BinderType, Expression},
     result::*,
     types::{resolve_type, Context},
@@ -124,9 +127,22 @@ fn find_eq_goals<'a>(
             )]),
             Expression::Binder(
                 expected_binder_type,
-                box Binder(_expected_variable, expected_variable_type, expected_body),
+                box Binder(expected_variable, expected_variable_type, expected_body),
             ) => {
                 if binder_type == expected_binder_type {
+                    let (Binder(adapted_variable, _, adapted_actual_body), Binder(_, _, adapted_expected_body)) = adapt_binder_variables(
+                        &Binder(
+                            actual_variable.clone(),
+                            actual_variable_type.clone(),
+                            actual_body.clone(),
+                        ),
+                        &Binder(
+                            expected_variable.clone(),
+                            expected_variable_type.clone(),
+                            expected_body.clone(),
+                        ),
+                    );
+
                     let mut goals = find_eq_goals(
                         context.clone(),
                         Cow::Owned(actual_variable_type.clone()),
@@ -134,11 +150,11 @@ fn find_eq_goals<'a>(
                     )?;
                     goals.append(&mut find_eq_goals(
                         context.extend(
-                            actual_variable.clone(),
+                            adapted_variable,
                             Cow::Owned(actual_variable_type.clone()),
                         ),
-                        Cow::Owned(actual_body.clone()),
-                        Cow::Owned(expected_body.clone()),
+                        Cow::Owned(adapted_actual_body),
+                        Cow::Owned(adapted_expected_body),
                     )?);
                     Ok(goals)
                 } else {
