@@ -10,7 +10,7 @@ use crate::{
     },
     expr::{Binder, BinderType, Expression},
     result::*,
-    types::{resolve_type, Context},
+    types::Context,
 };
 
 #[derive(Clone)]
@@ -240,7 +240,7 @@ fn find_expected_type_goals<'a>(
             })
         }
         Expression::Application(left, right) => {
-            let left_type = resolve_type(left, &context).chain_error(|| {
+            let left_type = context.resolve_type(left).chain_error(|| {
                 error!(
                     "Could not resolve type of left-hand-side in application {}",
                     expression
@@ -275,7 +275,7 @@ fn find_expected_type_goals<'a>(
             });
             let substituted_body =
                 beta_reduce_step(&Expression::application(*left.clone(), *right.clone()));
-            let body_type = resolve_type(&substituted_body, &context).chain_error(|| {
+            let body_type = context.resolve_type(&substituted_body).chain_error(|| {
                 error!(
                     "Could not resolve type of body in application {}",
                     expression

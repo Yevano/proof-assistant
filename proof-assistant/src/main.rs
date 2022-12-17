@@ -1,13 +1,18 @@
 #![allow(mixed_script_confusables)]
 #![allow(confusable_idents)]
+#![feature(const_trait_impl)]
+#![feature(box_patterns)]
 
 #[cfg(test)]
 mod tests;
 
 use proof_core::{
+    error,
+    expr::{Binder, BinderType, Expression, SortRank},
     goals::{find_goals, Constraint, TypeConstraint},
-    result::ResultExt,
+    result::{Result, ResultExt},
     scope::DefinitionScope,
+    types::Context,
 };
 
 use proof_impl::expr;
@@ -18,9 +23,19 @@ macro_rules! check {
     };
 }
 
+macro_rules! check_eq {
+    ($scope:expr, ($($lhs:tt)+) = ($($rhs:tt)+)) => {
+        $scope.show_eq_check(expr!($($lhs)+), expr!($($rhs)+)).chain_error(|| proof_core::error!("equality check failed")).unwrap_chain()
+    };
+}
+
 macro_rules! def {
     ($scope:expr, $lhs:ident := $($rhs:tt)+) => {
         $scope.add_definition(stringify!($lhs).into(), expr!($($rhs)+)).chain_error(|| proof_core::error!("could not define {}", stringify!($lhs))).unwrap_chain()
+    };
+
+    ($scope:expr, $lhs:literal := $($rhs:tt)+) => {
+        $scope.add_definition($lhs.into(), expr!($($rhs)+)).chain_error(|| proof_core::error!("could not define {}", $lhs)).unwrap_chain()
     };
 }
 
@@ -36,6 +51,39 @@ macro_rules! show {
     };
 }
 
+trait GoalReporter {
+    fn report_goals(&self, expression: Expression, expected_type: Expression);
+}
+
+impl<'a> GoalReporter for DefinitionScope<'a> {
+    fn report_goals(&self, expression: Expression, expected_type: Expression) {
+        let expression = self.substitute(&expression);
+        let expected_type = self.substitute(&expected_type);
+        let constraint = Constraint::HasType(TypeConstraint {
+            expression,
+            expected_type,
+        });
+        let goals = find_goals(self.context(), &constraint).unwrap_chain();
+
+        if goals.is_empty() {
+            println!("Success, no goals left!");
+            return;
+        }
+        println!();
+        println!("{} goals", goals.len());
+        for (i, goal) in goals.iter().enumerate() {
+            println!("{}.\n{}", i + 1, goal);
+            println!();
+        }
+    }
+}
+
+macro_rules! goals {
+    ($scope:expr, [$($xs:tt)+] : [$($ys:tt)+]) => {
+        $scope.report_goals(expr!($($xs)+), expr!($($ys)+))
+    };
+}
+
 fn main() {
     scope_test();
 }
@@ -45,17 +93,16 @@ fn scope_test() {
 
     def!(scope, Bot := for α : *. α);
 
+    def!(scope, Id := for α : *. for x : α. α);
     def!(scope, id := fun α : *. fun x : α. x);
 
-    def!(scope, Id := for α : *. for x : α. α);
-
-    def!(scope, Void := Id => Id);
-
-    show!(scope, Void);
-
-    def!(scope, void := id Id);
-
-    check!(scope, (void): (Void));
+    def!(scope, let :=
+        fun α : *.
+        fun x : α.
+        fun β : *.
+        fun f : α => β.
+        f x
+    );
 
     def!(scope, Value := fun α : *. (α => α) => α);
     show!(scope, Value);
@@ -77,29 +124,31 @@ fn scope_test() {
 
     def!(scope, const := fun α : *. fun β : *. fun u : α. β);
 
-    def!(scope, Nat := for α : *. (α => α) => α => α);
+    def!(scope, Bool := for α : *. α => α => α);
+    show!(scope, Bool);
+    
+    def!(scope, bool_true := fun α : *. fun x : α. fun y : α. x);
+    check!(scope, (bool_true): (Bool));
+    show!(scope, bool_true);
+    
+    def!(scope, bool_false := fun α : *. fun x : α. fun y : α. y);
+    check!(scope, (bool_false): (Bool));
+    show!(scope, bool_false);
 
-    def!(scope, zero := fun α : *. fun f : α => α. fun x : α. x);
-
-    check!(scope, (zero): (Nat));
-
-    def!(scope, succ := fun n : Nat. fun α : *. fun f : α => α. fun x : α. f (n α f x));
-
-    /* def!(scope, pred :=
-        fun n : Nat.
-        fun α : *.
-        fun f : α => α.
-        fun x : α.
-
-    ); */
-
-    scope.show(expr!(succ zero)).unwrap_chain();
-
-    check!(scope, (succ zero) : (Nat));
+    def!(scope, bool_not := fun α : *. fun x : Bool α. fun y : α. fun z : α. x z y);
+    show!(scope, bool_not);
 
     def!(scope, Not := fun α : *. α => Bot);
+    show!(scope, Not);
+
+    def!(scope, TheoremNotBot := Not Bot);
+    show!(scope, TheoremNotBot);
+
+    def!(scope, not_bot := id Bot);
+    check!(scope, (not_bot) : (TheoremNotBot));
 
     def!(scope, And := fun α : *. fun β : *. for γ : *. (α => β => γ) => γ);
+    show!(scope, And);
 
     def!(scope, pair :=
         fun α : *.
@@ -109,10 +158,13 @@ fn scope_test() {
         fun γ : *.
         fun arg : (α => β => γ). arg x y
     );
+    show!(scope, pair);
 
     def!(scope, fst := fun P : *. fun Q : *. fun x : And P Q. x P (fun a : P. fun b : Q. a));
+    show!(scope, fst);
 
     def!(scope, snd := fun P : *. fun Q : *. fun x : And P Q. x Q (fun a : P. fun b : Q. b));
+    show!(scope, snd);
 
     def!(scope, swap_pair := fun P : *. fun Q : *. fun x : And P Q. pair Q P (snd P Q x) (fst P Q x));
     check!(scope, (swap_pair) : (for P : *. for Q : *. And P Q => And Q P));
@@ -124,9 +176,9 @@ fn scope_test() {
         fun β : *.
         fun x : α.
         fun γ : *.
-        fun left1 : α => γ.
-        fun right1 : β => γ.
-            left1 x
+        fun l : α => γ.
+        fun r : β => γ.
+            l x
     );
 
     def!(scope, right :=
@@ -134,49 +186,199 @@ fn scope_test() {
         fun β : *.
         fun y : β.
         fun γ : *.
-        fun left1 : α => γ.
-        fun right1 : β => γ.
-            right1 y
+        fun l : α => γ.
+        fun r : β => γ.
+            r y
     );
 
     def!(scope, Iff := fun P : *. fun Q : *. And (P => Q) (Q => P));
     def!(scope, intro_iff := fun P : *. fun Q : *. pair (P => Q) (Q => P));
     check!(scope, (intro_iff) : (for P : *. for Q : *. (P => Q) => (Q => P) => Iff P Q));
 
-    def!(scope, Eq := fun α : *. fun x : α. fun y : α. for P : α => *. Iff (P x) (P y));
+    def!(scope, Eq :=
+        fun α : *.
+        fun x : α.
+        fun y : α.
+        for P : α => *. Iff (P x) (P y)
+    );
+    show!(scope, Eq);
 
     def!(scope, refl := fun α : *. fun x : α. fun P : α => *. intro_iff (P x) (P x));
 
-    def!(scope, EqNat := Eq Nat);
+    // def!(scope, EqNat := Eq Nat);
 
     check!(scope, (left) : (for α : *. for β : *. α => Or α β));
 
     // scope.show_all().unwrap_chain();
     println!();
 
-    def!(scope, TheoremLEM := for α : *. α => Or α (Not α));
-    def!(scope, lem := fun α : *. fun x : α. left α (Not α) x);
+    // A => A ∨ ¬A
+    def!(scope, TheoremLEM := for A : *. A => Or A (Not A));
+    def!(scope, lem :=
+        fun A : *.
+        fun x : A.
+        left A (Not A) x
+    );
     check!(scope, (lem): (TheoremLEM));
     show!(scope, lem);
 
-    def!(scope, TheoremPOE := for α : *. Bot => α);
-    def!(scope, poe := fun α : *. fun bottom : Bot. bottom α);
+    // ⊥ => A
+    def!(scope, TheoremPOE := for A : *. (for α : *. α) => A);
+    def!(scope, poe :=
+        fun A : *.
+        fun bottom : (for α : *. α).
+        bottom A
+    );
     check!(scope, (poe): (TheoremPOE));
     show!(scope, poe);
 
-    def!(scope, TheoremDoubleNeg := for α : *. α => Not (Not α));
-    def!(scope, double_neg := fun α : *. fun p : α. fun not_p : Not α. not_p p);
+    // A => ¬¬A
+    def!(scope, TheoremDoubleNeg := for A : *. A => Not (Not A));
+    def!(scope, double_neg :=
+        fun A : *.
+        fun a : A.
+        fun not_a : Not A.
+        not_a a
+    );
     check!(scope, (double_neg): (TheoremDoubleNeg));
     show!(scope, double_neg);
 
-    def!(scope, TheoremLNC := for α : *. Not (And α (Not α)));
-    def!(scope, lnc := fun α : *. fun p_and_not_p : And α (Not α). p_and_not_p Bot (fun p : α. fun not_p : Not α. not_p p));
+    // ¬(A ∧ ¬A)
+    def!(scope, TheoremLNC := for A : *. Not (And A (Not A)));
+    def!(scope, lnc :=
+        fun A : *.
+        fun p_and_not_p : And A (Not A).
+        p_and_not_p Bot (
+            fun p : A.
+            fun not_p : Not A.
+            not_p p
+        )
+    );
     check!(scope, (lnc): (TheoremLNC));
     show!(scope, lnc);
 
-    show!(scope, Eq);
+    // P ∧ Q => Q ∧ P
+    def!(scope, TheoremAndSymm :=
+        for P : *. for Q : *. And P Q => And Q P
+    );
+    show!(scope, TheoremAndSymm);
+    def!(scope, and_symm :=
+        fun P : *.
+        fun Q : *.
+        fun p_and_q : And P Q.
+        pair Q P (snd P Q p_and_q) (fst P Q p_and_q)
+    );
+    check!(scope, (and_symm) : (TheoremAndSymm));
 
-    def!(scope, TheoremEqSymm := for α : *. for x : α. for y : α. Eq α x y => Eq α y x);
+    // P ∨ Q => Q ∨ P
+    def!(scope, TheoremOrSymm :=
+        for P : *. for Q : *. Or P Q => Or Q P
+    );
+    show!(scope, TheoremOrSymm);
+    def!(scope, or_symm :=
+        fun P : *.
+        fun Q : *.
+        fun pq : Or P Q.
+        pq (Or Q P)
+            (fun p : P. right Q P p)
+            (fun q : Q. left Q P q)
+    );
+    check!(scope, (or_symm) : (TheoremOrSymm));
+
+    // P ∧ (Q ∧ R) => (P ∧ Q) ∧ R
+    def!(scope, TheoremAndAssoc :=
+        for P : *. for Q : *. for R : *. And P (And Q R) => And (And P Q) R
+    );
+    show!(scope, TheoremAndAssoc);
+    def!(scope, and_assoc :=
+        fun P : *. fun Q : *. fun R : *.
+        fun h : And P (And Q R).
+        pair (And P Q) R
+            (pair P Q
+                (fst P (And Q R) h)
+                (fst Q R (snd P (And Q R) h))
+            )
+            (snd Q R (snd P (And Q R) h))
+    );
+    check!(scope, (and_assoc) : (TheoremAndAssoc));
+
+    // P ∨ (Q ∨ R) => (P ∨ Q) ∨ R
+    def!(scope, TheoremOrAssoc :=
+        for P : *. for Q : *. for R : *. Or P (Or Q R) => Or (Or P Q) R
+    );
+    show!(scope, TheoremOrAssoc);
+    def!(scope, or_assoc :=
+        fun P : *. fun Q : *. fun R : *.
+        fun h : Or P (Or Q R).
+        fun γ : *.
+        fun case_p_or_q : Or P Q => γ.
+        fun case_r : R => γ.
+        h γ
+            (fun p : P. case_p_or_q (left P Q p))
+            (fun q_or_r : Or Q R. q_or_r γ
+                (fun q : Q. case_p_or_q (right P Q q))
+                (fun r : R. case_r r)
+            )
+    );
+    check!(scope, (or_assoc) : (TheoremOrAssoc));
+
+    // (P <=> Q) => P => Q
+    def!(scope, TheoremIffForward := for P : *. for Q : *. Iff P Q => P => Q);
+    show!(scope, TheoremIffForward);
+    def!(scope, iff_forward :=
+        fun P : *. fun Q : *.
+        ?
+    );
+    goals!(scope, [iff_forward] : [TheoremIffForward]);
+
+    // ¬(P ∧ Q) => ¬P ∨ ¬Q
+    def!(scope, TheoremNegConjToDisj :=
+        for P : *. for Q : *. Not (And P Q) => Or (Not P) (Not Q)
+    );
+    show!(scope, TheoremNegConjToDisj);
+    /* def!(scope, neg_conj_to_disj :=
+        fun P : *. fun Q : *.
+        fun not_p_and_q : Not (And P Q).
+        fun γ : *.
+        fun case_not_p : Not P => γ.
+        fun case_not_q : Not Q => γ.
+        (
+            fun h : Or (Not (And P Q)) (Not (Not (And P Q))).
+            h γ
+                (fun _ : Not (And P Q). ?)
+                (
+                    fun _ : Not (Not (And P Q)).
+                    double_neg
+                )
+        )
+        (lem (Not (And P Q)) not_p_and_q)
+    ); */
+    return ();
+
+    def!(scope, TheoremNegConj := for P : *. for Q : *. Iff (Not (And P Q)) (Or (Not P) (Not Q)));
+    /* def!(scope, neg_conj :=
+        fun P : *.
+        fun Q : *.
+        pair
+            ((Not (And P Q)) => (Or (Not P) (Not Q)))
+            ((Or (Not P) (Not Q)) => (Not (And P Q)))
+            (
+                // goal : (Not (And P Q)) => (Or (Not P) (Not Q))
+                fun h : Not (And P Q).
+                // h    : And P Q => Bot
+                //      : (ΠR : *. (P => Q => R) => R) => Bot
+                //
+                // goal : (Or (Not P) (Not Q))
+                //      : ΠR : *. (Not P => R) => (Not Q => R) => R
+                //
+                fun 
+            )
+    ); */
+
+    def!(scope, Symm := fun Op : (for α : *. α => α => *). for α : *. for x : α. for y : α. Op α x y => Op α y x);
+    def!(scope, SymmT := fun Op : * => * => *. for α : *. for β : *. Op α β => Op β α);
+
+    def!(scope, TheoremEqSymm := Symm Eq);
     def!(scope, eq_symm :=
         fun α : *.
         fun x : α.
@@ -185,29 +387,601 @@ fn scope_test() {
         fun P : (α => *).
         swap_pair (P x => P y) (P y => P x) (x_eq_y P)
     );
-    // TODO: Add tree walking to expression tree so that we can match to expressions for displaying pretty stuff like P <=> Q and x = y
     check!(scope, (eq_symm): (TheoremEqSymm));
     show!(scope, eq_symm);
 
-    def!(scope, TheoremSuccEq := for m : Nat. for n : Nat. EqNat m n => EqNat (succ m) (succ n));
-    def!(scope, succ_eq :=
+    def!(scope, Nat := for α : *. (α => α) => α => α);
+    def!(scope, nat_zero := fun α : *. fun f : α => α. fun x : α. x);
+    check!(scope, (nat_zero): (Nat));
+    def!(scope, nat_one := fun α : *. fun f : α => α. fun x : α. f x);
+    def!(scope, nat_succ := fun n : Nat. fun α : *. fun f : α => α. fun x : α. f (n α f x));
+    check!(scope, (nat_succ) : (Nat => Nat));
+
+    def!(scope, nat_pred :=
+        fun n : Nat.
+        fun α : *.
+        fun f : α => α.
+        fun x : α.
+        n ((α => α) => α) (fun g : (α => α) => α. fun h : α => α. h (g f)) (fun y : α => α. x) (fun y : α. y)
+    );
+    check!(scope, (nat_pred) : (Nat => Nat));
+
+    // Note: n α f : α => α which applies f n-times.
+    // Example: 3 α f x = f (f (f x))
+
+    def!(scope, nat_add :=
         fun m : Nat.
         fun n : Nat.
-        fun m_eq_n : EqNat m n.
-        fun P : Nat => *.
+        n Nat nat_succ m
+    );
+
+    def!(scope, nat_sub :=
+        fun m : Nat.
+        fun n : Nat.
+        n Nat nat_pred m
+    );
+
+    // check_eq!(scope, (nat_pred nat_zero) = (nat_zero));
+    // check_eq!(scope, (nat_pred (nat_succ nat_zero)) = (nat_zero));
+    // check_eq!(scope, (nat_pred (nat_succ (nat_succ nat_zero))) = (nat_succ nat_zero));
+
+    def!(scope, nat_is_zero :=
+        fun n : Nat.
+        fun α : *.
+            n (α => α => α)
+                (fun x : α => α => α. bool_false α)
+                (bool_true α)
+    );
+
+    check!(scope, (nat_is_zero) : (Nat => Bool));
+
+    show!(scope, Bot);
+    show!(scope, Not);
+    show!(scope, And);
+    show!(scope, Or);
+
+    show!(scope, left);
+    show!(scope, right);
+
+    // The integers
+    def!(scope, Int := for γ : *. (Id => γ) => (Nat => γ) => (Nat => γ) => γ);
+    show!(scope, Int);
+    def!(scope, int_zero :=
+        fun γ : *.
+        fun zero : Id => γ.
+        fun _ : Nat => γ.
+        fun _ : Nat => γ.
+        zero id
+    );
+    check!(scope, (int_zero): (Int));
+
+    def!(scope, int_one :=
+        fun γ : *.
+        fun zero : Id => γ.
+        fun pos : Nat => γ.
+        fun neg : Nat => γ.
+        pos nat_zero
+    );
+    check!(scope, (int_one): (Int));
+
+    def!(scope, int_neg_one :=
+        fun γ : *.
+        fun zero : Id => γ.
+        fun pos : Nat => γ.
+        fun neg : Nat => γ.
+        neg nat_zero
+    );
+    check!(scope, (int_neg_one): (Int));
+
+    def!(scope, int_neg :=
+        fun n : Int.
+        fun γ : *.
+        n ((Id => γ) => (Nat => γ) => (Nat => γ) => γ)
+            // If n = 0
+            (fun n_zero : Id. int_zero γ)
+
+            // If n > 0
+            (fun n_pos : Nat.
+                fun zero : Id => γ.
+                fun pos : Nat => γ.
+                fun neg : Nat => γ.
+                neg n_pos
+            )
+
+            // If n < 0
+            (fun n_neg : Nat.
+                fun zero : Id => γ.
+                fun pos : Nat => γ.
+                fun neg : Nat => γ.
+                pos n_neg
+            )
+    );
+
+    check!(scope, (int_neg) : (Int => Int));
+
+    def!(scope, int_is_zero :=
+        fun n : Int.
+        fun γ : *.
+        n (γ => γ => γ)
+            // If n = 0
+            (fun n_zero : Id. bool_true γ)
+
+            // If n > 0
+            (fun n_pos : Nat. bool_false γ)
+
+            // If n < 0
+            (fun n_neg : Nat. bool_false γ)
+    );
+
+    check!(scope, (int_is_zero) : (Int => Bool));
+
+    def!(scope, int_is_neg :=
+        fun n : Int.
+        fun γ : *.
+        n (γ => γ => γ)
+            // If n = 0
+            (fun n_zero : Id. bool_false γ)
+
+            // If n > 0
+            (fun n_pos : Nat. bool_false γ)
+
+            // If n < 0
+            (fun n_neg : Nat. bool_true γ)
+    );
+
+    check!(scope, (int_is_neg) : (Int => Bool));
+
+    def!(scope, int_is_pos :=
+        fun n : Int.
+        fun γ : *.
+        n (γ => γ => γ)
+            // If n = 0
+            (fun n_zero : Id. bool_false γ)
+
+            // If n > 0
+            (fun n_pos : Nat. bool_false γ)
+
+            // If n < 0
+            (fun n_neg : Nat. bool_true γ)
+    );
+
+    check!(scope, (int_is_pos) : (Int => Bool));
+
+    check_eq!(scope, (int_neg int_zero) = (int_zero));
+    check_eq!(scope, (int_neg int_one) = (int_neg_one));
+    check_eq!(scope, (int_neg int_neg_one) = (int_one));
+
+    // The successor function
+    def!(scope, int_succ :=
+        fun n : Int.
+        fun γ : *.
+        n ((Id => γ) => (Nat => γ) => (Nat => γ) => γ)
+            // If n = 0
+            (fun n_zero : Id. int_one γ)
+
+            // If n > 0
+            (
+                fun n_pos : Nat.
+                fun zero : Id => γ.
+                fun pos : Nat => γ.
+                fun neg : Nat => γ.
+                pos (nat_succ n_pos)
+            )
+
+            // If n < 0
+            (
+                fun n_neg : Nat.
+                (nat_is_zero n_neg) ((Id => γ) => (Nat => γ) => (Nat => γ) => γ)
+                    // If n_neg = 0
+                    (int_zero γ)
+
+                    // If n_neg > 0
+                    (
+                        fun zero : Id => γ.
+                        fun pos : Nat => γ.
+                        fun neg : Nat => γ.
+                        neg (nat_pred n_neg)
+                    )
+            )
+    );
+
+    check!(scope, (int_succ) : (Int => Int));
+
+    def!(scope, int_pred :=
+        fun n : Int.
+        fun γ : *.
+        n ((Id => γ) => (Nat => γ) => (Nat => γ) => γ)
+            // If n = 0
+            (fun n_zero : Id. int_neg_one γ)
+
+            // If n > 0
+            (
+                fun n_pos : Nat.
+                (nat_is_zero n_pos) ((Id => γ) => (Nat => γ) => (Nat => γ) => γ)
+                    // If n_pos = 0
+                    (int_zero γ)
+
+                    // If n_pos > 0
+                    (
+                        fun zero : Id => γ.
+                        fun pos : Nat => γ.
+                        fun neg : Nat => γ.
+                        pos (nat_pred n_pos)
+                    )
+            )
+
+            // If n < 0
+            (
+                fun n_neg : Nat.
+                fun zero : Id => γ.
+                fun pos : Nat => γ.
+                fun neg : Nat => γ.
+                neg (nat_succ n_neg)
+            )
+    );
+
+    check!(scope, (int_pred) : (Int => Int));
+
+    def!(scope, int_match :=
+        fun n : Int.
+        fun γ : *.
+        fun zero : γ.
+        fun pos : γ.
+        fun neg : γ.
+        n γ
+            (fun _ : Id. zero)
+            (fun _ : Nat. pos)
+            (fun _ : Nat. neg)
+    );
+
+    def!(scope, int_abs_as_nat :=
+        fun n : Int.
+        n Nat
+            // If n = 0
+            (fun n_zero : Id. nat_zero)
+
+            // If n > 0
+            (fun n_pos : Nat. nat_succ n_pos)
+
+            // If n < 0
+            (fun n_neg : Nat. nat_succ n_neg)
+    );
+
+    // Helper function to be more explicit about the intention to repeatedly apply a function.
+    def!(scope, repeat :=
+        fun α : *.
+        fun f : α => α.
+        fun n : Nat.
+        n α f
+    );
+
+    check!(scope, (repeat) : (for α : *. (α => α) => Nat => (α => α)));
+
+    def!(scope, int_add :=
+        fun m : Int.
+        fun n : Int.
+        int_match n Int
+            // n = 0
+            m
+
+            // n > 0
+            (repeat Int int_succ (int_abs_as_nat n) m) // apply int_succ n-times to m
+
+            // n < 0
+            (repeat Int int_pred (int_abs_as_nat n) m) // apply int_pred |n|-times to m
+    );
+
+    def!(scope, "+" := int_add);
+
+    def!(scope, int_sub :=
+        fun m : Int.
+        fun n : Int.
+        int_add m (int_neg n)
+    );
+
+    def!(scope, int_mul :=
+        fun m : Int.
+        fun n : Int.
         ?
     );
 
-    let constraint = Constraint::HasType(TypeConstraint {
-        expression: scope.substitute(&expr!(succ_eq)),
-        expected_type: scope.substitute(&expr!(TheoremSuccEq)),
-    });
-    let goals = find_goals(scope.context(), &constraint).unwrap_chain();
+    def!(scope, TotalOrder :=
+        for α : *.
+        for R : α => α => *.
+        (for a : α. R a a) =>
+        (for a : α. for b : α. for c : α. And (R a b) (R b c) => (R a c)) =>
+        (for a : α. for b : α. for c : α. And (R a b) (R b a) => Eq α a b) =>
+        (for a : α. for b : α. Or (R a b) (R b a))
+    );
 
-    println!();
-    println!("{} goals", goals.len());
-    for goal in goals.iter() {
-        println!("{}.\n{}", goals.len(), goal);
-        println!();
+    def!(scope, Ind :=
+        for P : Nat => *. P nat_zero => (for x : Nat. P x => P (nat_succ x)) => for x : Nat. P x
+    );
+    show!(scope, Ind);
+
+    def!(scope, EqNat :=
+        fun m : Nat.
+        fun n : Nat.
+        Eq Nat m n
+    );
+
+    def!(scope, LTNat :=
+        fun m : Nat.
+        fun n : Nat.
+        // m < n <=> ∃x : 𝐍. m - x = 0 ∧ n - x = 1
+        for C : *. (
+            for x : Nat.
+            And
+                (EqNat (nat_sub m x) (nat_zero))
+                (EqNat (nat_sub n x) nat_one)
+            => C
+        ) => C
+    );
+    show!(scope, LTNat);
+
+    def!(scope, GENat :=
+        fun m : Nat.
+        fun n : Nat.
+        Not (LTNat m n)
+    );
+    show!(scope, GENat);
+
+    // ∀m n : 𝐍. m = n => m >= n
+    def!(scope, TheoremNatEqThenGE :=
+        for m : Nat. for n : Nat. EqNat m n => GENat m n
+    );
+
+    def!(scope, nat_eq_then_ge :=
+        fun m : Nat. fun n : Nat.
+        // goal : m = n => m >= n
+        fun m_eq_n : EqNat m n.
+        // goal : m >= n
+        //      : ¬(m < n)
+        //      : m < n => ⊥
+        fun m_lt_n : LTNat m n.
+        // m_lt_n : for C : *. (
+        //     for x : Nat.
+        //     And
+        //         (EqNat (nat_sub m x) (nat_zero))
+        //         (EqNat (nat_sub n x) nat_one)
+        //     => C
+        // ) => C
+        // goal : ⊥
+        m_lt_n
+            (Bot)
+            (
+                // goal: (
+                //     for x : Nat.
+                //     And
+                //         (EqNat (nat_sub m x) (nat_zero))
+                //         (EqNat (nat_sub n x) nat_one)
+                //     => Bot
+                // ) => Bot
+                fun _ : // ∀x : 𝐍. ¬((m - x = 0) ∧ (n - x = 1))
+                    for x : Nat.
+                    Not (
+                        And
+                            (EqNat (nat_sub m x) (nat_zero))
+                            (EqNat (nat_sub n x) nat_one)
+                    ).
+                    // goal : ⊥
+                    
+            )
+    );
+    // check!(scope, (nat_eq_then_ge) : (TheoremNatEqThenGE));
+
+    /* def!(scope, zero_ge_zero :=
+        fun 
+    );
+    check!() */
+
+    def!(scope, ind_ge_zero :=
+        fun zero_case : ?.
+        fun ind_case : ?.
+        fun x : Nat.
+        ?
+    );
+    // check!(scope, (ind_ge_zero) : (Ind ));
+
+/*     def!(scope, Set := for α : *. α => *);
+    show!(scope, Set);
+
+    def!(scope, EmptySet := fun α : *. fun x : α. Bot);
+    show!(scope, EmptySet);
+    check!(scope, (EmptySet) : (Set));
+
+    def!(scope, UniversalSet := fun α : *. fun x : α. Id);
+    show!(scope, UniversalSet);
+    check!(scope, (UniversalSet) : (Set));
+
+    def!(scope, ElementOf :=
+        fun α : *.
+        fun x : α.
+        fun S : Set.
+        S α x
+    );
+    show!(scope, ElementOf);
+    check!(scope, (ElementOf) : (for α : *. α => Set => *));
+
+    def!(scope, Subset :=
+        fun A : Set.
+        fun B : Set.
+        for α : *.
+        for x : α.
+        ElementOf α x A => ElementOf α x B
+    );
+    show!(scope, Subset);
+    check!(scope, (Subset) : (Set => Set => *));
+    
+    // The empty set is a subset of all sets.
+    def!(scope, TheoremEmptySetSubsetAll := for S : Set. Subset EmptySet S);
+    show!(scope, TheoremEmptySetSubsetAll);
+
+    def!(scope, empty_set_subset_all :=
+        fun S : Set.
+        fun α : *.
+        fun x : α.
+        poe (S α x)
+    );
+    check!(scope, (empty_set_subset_all) : (TheoremEmptySetSubsetAll));
+
+    // Every set is a subset of the universal set.
+    def!(scope, TheoremAllSubsetUniversal := for S : Set. Subset S UniversalSet);
+    show!(scope, TheoremAllSubsetUniversal);
+
+    def!(scope, all_subset_universal :=
+        fun S : Set.
+        fun α : *.
+        fun x : α.
+        fun P : S α x.
+        id
+    );
+    check!(scope, (all_subset_universal) : (TheoremAllSubsetUniversal));
+
+    // Every set is a subset of itself.
+    def!(scope, TheoremSetSubsetSelf := for S : Set. Subset S S);
+    show!(scope, TheoremSetSubsetSelf);
+
+    def!(scope, set_subset_self :=
+        fun S : Set.
+        fun α : *.
+        fun x : α.
+        id (S α x)
+    );
+    check!(scope, (set_subset_self) : (TheoremSetSubsetSelf));
+
+    def!(scope, SetEq :=
+        fun A : Set.
+        fun B : Set.
+        And (Subset A B) (Subset B A)
+    );
+
+    def!(scope, ComplementSet :=
+        fun A : Set.
+        fun α : *.
+        fun x : α.
+        Not (ElementOf α x A)
+    );
+    check!(scope, (ComplementSet) : (Set => Set));
+
+    // There are no elements in ∅
+    def!(scope, TheoremNothingInEmptySet := for α : *. for x : α. Not (ElementOf α x EmptySet));
+    show!(scope, TheoremNothingInEmptySet);
+
+    def!(scope, nothing_in_empty_set := fun α : *. fun x : α. not_bot);
+
+    // ∅' = U
+    def!(scope, TheoremComplementEmptyEqUniversal := SetEq (ComplementSet EmptySet) UniversalSet);
+    show!(scope, TheoremComplementEmptyEqUniversal);
+
+    def!(scope, complement_empty_eq_universal :=
+        // Since A = B => A ⊆ B ∧ B ⊆ A
+        // We start by constructing the pair (∅' ⊆ U, U ⊆ ∅')
+        pair
+            (Subset (ComplementSet EmptySet) UniversalSet)
+            (Subset UniversalSet (ComplementSet EmptySet))
+
+            // S ⊆ U for all S, so ∅' ⊆ U
+            (all_subset_universal (ComplementSet EmptySet))
+
+            // U ⊆ ∅'
+            (
+                fun α : *.
+                fun x : α.
+                fun _ : Id.
+                not_bot
+            )
+    );
+    check!(scope, (complement_empty_eq_universal) : (TheoremComplementEmptyEqUniversal));
+
+    def!(scope, SetIntersection :=
+        fun A : Set.
+        fun B : Set.
+        fun α : *.
+        fun x : α.
+        And (ElementOf α x A) (ElementOf α x B)
+    );
+    show!(scope, SetIntersection);
+    check!(scope, (SetIntersection) : (Set => Set => Set));
+
+    def!(scope, SetUnion :=
+        fun A : Set.
+        fun B : Set.
+        fun α : *.
+        fun x : α.
+        Or (ElementOf α x A) (ElementOf α x B)
+    );
+    show!(scope, SetUnion);
+    check!(scope, (SetUnion) : (Set => Set => Set));
+
+    def!(scope, SmallSet :=
+        fun α : *. α => *
+    );
+    show!(scope, SmallSet);
+
+    def!(scope, Comprehension :=
+        fun A : Set.
+        fun α : *.
+        fun ϕ : α => *.
+        for x : α.
+        ElementOf α x A => ϕ x
+    );
+    show!(scope, Comprehension);
+    // check!(scope, (Comprehension) : (Set => for α : *. SmallSet α));
+
+    show!(scope, Comprehension UniversalSet Int (fun x : Int. Eq Int x x));
+
+    def!(scope, PairSet :=
+        fun α : *.
+        fun x : α.
+        fun y : α.
+        fun z : α.
+        ?
+    );
+
+    def!(scope, NonZeroInt :=
+        for γ : *. (for z : Int. Not (Eq Int z int_zero)) => γ
+    );
+    show!(scope, NonZeroInt); */
+
+    /* def!(scope, Rational :=
+        for γ : *.
+        ()
+    ); */
+
+    def!(scope, inter :=
+        fun A : *.
+        fun α : (A => *) => *.
+        fun x : A.
+        for P : A => *.
+        α P => P x
+    );
+    show!(scope, inter);
+
+    def!(scope, inter_ex :=
+        inter Bool (fun P : Bool => *. P bool_true) bool_false
+    );
+    show!(scope, inter_ex);
+}
+
+fn expr_to_int(scope: &DefinitionScope, expr: &Expression) -> Result<i32> {
+    let is_int = scope.is_of_type(expr, &expr!(Int))?;
+    if !is_int {
+        return error!("Expected an Int").into();
+    }
+
+    if scope.is_eq(expr, &expr!(int_zero)) {
+        return Ok(0);
+    }
+
+    if scope.is_eq(
+        &scope.eval(&Expression::application(expr!(int_is_neg), expr.clone())),
+        &expr!(bool_true),
+    ) {
+        let expr_plus_one = scope.eval(&Expression::application(expr!(int_succ), expr.clone()));
+        expr_to_int(scope, &expr_plus_one).map(|x| x - 1)
+    } else {
+        let expr_minus_one = scope.eval(&Expression::application(expr!(int_pred), expr.clone()));
+        expr_to_int(scope, &expr_minus_one).map(|x| x + 1)
     }
 }

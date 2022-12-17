@@ -133,15 +133,43 @@ pub enum Expression {
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub struct MappedBinder<T>(Variable, MappedExpression<T>, MappedExpression<T>);
+pub struct MappedBinder<T>(pub Variable, pub MappedExpression<T>, pub MappedExpression<T>);
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum MappedExpression<T> {
     Hole(T),
-    Sort(SortRank, T),
-    Variable(Variable, T),
-    Binder(BinderType, Box<MappedBinder<T>>, T),
-    Application(Box<MappedExpression<T>>, Box<MappedExpression<T>>, T),
+    Sort(T, SortRank),
+    Variable(T, Variable),
+    Binder(T, BinderType, Box<MappedBinder<T>>),
+    Application(T, Box<MappedExpression<T>>, Box<MappedExpression<T>>),
+}
+
+impl<T> MappedExpression<T> {
+    pub fn attachment(&self) -> &T {
+        match self {
+            MappedExpression::Hole(a) => a,
+            MappedExpression::Sort(a, _) => a,
+            MappedExpression::Variable(a, _) => a,
+            MappedExpression::Binder(a, _, _) => a,
+            MappedExpression::Application(a, _, _) => a,
+        }
+    }
+}
+
+impl<T> From<MappedExpression<T>> for Expression {
+    fn from(value: MappedExpression<T>) -> Self {
+        match value {
+            MappedExpression::Hole(_) => Expression::Hole,
+            MappedExpression::Sort(_, a) => Expression::Sort(a),
+            MappedExpression::Variable(_, a) => Expression::Variable(a),
+            MappedExpression::Binder(_, a, box MappedBinder(b, c, d)) => {
+                Expression::Binder(a, Binder(b, c.into(), d.into()).into())
+            }
+            MappedExpression::Application(_, box a, box b) => {
+                Expression::Application(Box::new(a.into()), Box::new(b.into()))
+            }
+        }
+    }
 }
 
 impl Expression {
@@ -196,28 +224,36 @@ impl Expression {
         Self::Application(Box::new(function), Box::new(argument))
     }
 
-    pub fn visit_map<R, F: Fn(&Self) -> R>(&self, f: &F) -> MappedExpression<R> {
+    pub fn map<T, F: Fn(&Expression) -> T>(&self, mapper: &F) -> MappedExpression<T> {
+        let attachment = mapper(self);
         match self {
-            Expression::Hole => MappedExpression::Hole(f(self)),
-            Expression::Sort(rank) => MappedExpression::Sort(*rank, f(self)),
-            Expression::Variable(name) => MappedExpression::Variable(name.clone(), f(self)),
-            Expression::Binder(binder_type, box Binder(variable, type_, body)) => {
-                MappedExpression::Binder(
-                    *binder_type,
-                    Box::new(MappedBinder(
-                        variable.clone(),
-                        Expression::visit_map(type_, f),
-                        Expression::visit_map(body, f),
-                    )),
-                    f(self),
+            Expression::Hole => MappedExpression::Hole(attachment),
+            Expression::Sort(a) => MappedExpression::Sort(attachment, *a),
+            Expression::Variable(a) => MappedExpression::Variable(attachment, a.clone()),
+            Expression::Binder(a, box Binder(b, c, d)) => MappedExpression::Binder(
+                attachment,
+                *a,
+                MappedBinder(
+                    b.clone(),
+                    c.map(mapper),
+                    d.map(mapper),
                 )
-            }
-            Expression::Application(a, b) => {
-                MappedExpression::Application(a.visit_map(f).into(), b.visit_map(f).into(), f(self))
-            }
+                .into(),
+            ),
+            Expression::Application(box a, box b) => MappedExpression::Application(
+                attachment,
+                a.map(mapper).into(),
+                b.map(mapper).into(),
+            ),
         }
     }
 }
+
+const PRETTY_IFF: bool = false;
+const PRETTY_AND: bool = false;
+const PRETTY_OR: bool = false;
+const PRETTY_NOT: bool = false;
+const PRETTY_BOT: bool = false;
 
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -225,6 +261,188 @@ impl Display for Expression {
             Self::Hole => write!(f, "◻"),
             Self::Sort(rank) => write!(f, "{}", rank),
             Self::Variable(variable) => write!(f, "{}", variable),
+            // Πγ:*.((A => B) => (B => A) => γ) => γ
+            Self::Binder(
+                BinderType::Product,
+                box Binder(
+                    c1,
+                    // *
+                    Self::Sort(SortRank(0)),
+                    // ((A => B) => (B => A) => γ) => γ
+                    Self::Binder(
+                        BinderType::Product,
+                        box Binder(
+                            _,
+                            // (A => B) => (B => A) => γ
+                            Self::Binder(
+                                BinderType::Product,
+                                box Binder(
+                                    _,
+                                    // (A => B)
+                                    Self::Binder(
+                                        BinderType::Product,
+                                        box Binder(
+                                            _,
+                                            // A
+                                            a1,
+                                            // B
+                                            b1,
+                                        ),
+                                    ),
+                                    // (B => A) => γ
+                                    Self::Binder(
+                                        BinderType::Product,
+                                        box Binder(
+                                            _,
+                                            // (B => A)
+                                            Self::Binder(
+                                                BinderType::Product,
+                                                box Binder(
+                                                    _,
+                                                    // B
+                                                    b2,
+                                                    // A
+                                                    a2,
+                                                ),
+                                            ),
+                                            // γ
+                                            Self::Variable(c2),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            // γ
+                            Self::Variable(c3),
+                        ),
+                    ),
+                ),
+            ) if PRETTY_IFF && c1 == c2 && c2 == c3 && a1 == a2 && b1 == b2 => {
+                write!(f, "({}) <=> ({})", a1, b1)
+            }
+            // Πγ:*.(α => β => γ) => γ
+            // Writes α ∧ β.
+            Self::Binder(
+                BinderType::Product,
+                box Binder(
+                    c1,
+                    // *
+                    Self::Sort(SortRank(0)),
+                    // (α => β => γ) => γ
+                    Self::Binder(
+                        BinderType::Product,
+                        box Binder(
+                            _,
+                            // α => β => γ
+                            Self::Binder(
+                                BinderType::Product,
+                                box Binder(
+                                    _,
+                                    // α
+                                    a1,
+                                    // β => γ
+                                    Self::Binder(
+                                        BinderType::Product,
+                                        box Binder(
+                                            _,
+                                            // β
+                                            b1,
+                                            // γ
+                                            Self::Variable(c2),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            // γ
+                            Self::Variable(c3),
+                        ),
+                    ),
+                ),
+            ) if PRETTY_AND && c1 == c2 && c2 == c3 => write!(f, "({}) ∧ ({})", a1, b1),
+
+            // Πγ:*.(α => γ) => (β => γ) => γ
+            // Writes α ∨ β.
+            Self::Binder(
+                BinderType::Product,
+                box Binder(
+                    c1,
+                    // *
+                    Self::Sort(SortRank(0)),
+                    // (α => γ) => (β => γ) => γ
+                    Self::Binder(
+                        BinderType::Product,
+                        box Binder(
+                            _,
+                            // α => γ
+                            Self::Binder(
+                                BinderType::Product,
+                                box Binder(
+                                    _,
+                                    // α
+                                    a1,
+                                    // γ
+                                    Self::Variable(c2),
+                                ),
+                            ),
+                            // (β => γ) => γ
+                            Self::Binder(
+                                BinderType::Product,
+                                box Binder(
+                                    _,
+                                    // β => γ
+                                    Self::Binder(
+                                        BinderType::Product,
+                                        box Binder(
+                                            _,
+                                            // β
+                                            b1,
+                                            // γ
+                                            Self::Variable(c3),
+                                        ),
+                                    ),
+                                    // γ
+                                    Self::Variable(c4),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ) if PRETTY_OR && c1 == c2 && c2 == c3 && c3 == c4 => write!(f, "({}) ∨ ({})", a1, b1),
+
+            // α => Πβ:*.β
+            // Writes ¬α.
+            Self::Binder(
+                BinderType::Product,
+                box Binder(
+                    _,
+                    // α
+                    a1,
+                    // Πβ:*.β
+                    Self::Binder(
+                        BinderType::Product,
+                        box Binder(
+                            b1,
+                            // *
+                            Self::Sort(SortRank(0)),
+                            // β
+                            Self::Variable(b2),
+                        ),
+                    ),
+                ),
+            ) if PRETTY_NOT && b1 == b2 => write!(f, "¬({})", a1),
+
+            // Πα:*.α
+            // Writes ⊥.
+            Self::Binder(
+                BinderType::Product,
+                box Binder(
+                    a1,
+                    // *
+                    Self::Sort(SortRank(0)),
+                    // α
+                    Self::Variable(a2),
+                ),
+            ) if PRETTY_BOT && a1 == a2 => write!(f, "⊥"),
+
             Self::Binder(BinderType::Abstraction, box Binder(variable, type_, body)) => {
                 let type_ = match type_ {
                     Expression::Binder(_, _) => format!("({})", type_),
@@ -242,7 +460,7 @@ impl Display for Expression {
                 if fvs_in_body.contains(variable) {
                     write!(f, "Π{}:{}.{}", variable, type_, body)
                 } else {
-                    write!(f, "{} ⭆ {}", type_, body)
+                    write!(f, "{} => {}", type_, body)
                 }
             }
 
@@ -273,6 +491,29 @@ impl From<&str> for Expression {
 impl From<Variable> for Expression {
     fn from(variable: Variable) -> Self {
         Self::variable(&variable.to_string())
+    }
+}
+
+pub enum PrettyExpression {
+    /// <=> operator.
+    Iff(Box<PrettyExpression>, Box<PrettyExpression>),
+
+    /// Normal expression.
+    Normal(Expression),
+}
+
+impl Display for PrettyExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Iff(a, b) => write!(f, "({}) <=> ({})", a, b),
+            PrettyExpression::Normal(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl From<Expression> for PrettyExpression {
+    fn from(expression: Expression) -> Self {
+        todo!()
     }
 }
 

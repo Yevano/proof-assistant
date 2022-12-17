@@ -11,4 +11,6 @@ pub mod expr;
 pub mod goals;
 pub mod parse;
 pub mod scope;
+pub mod term_writer;
+pub mod term;
 pub mod types;

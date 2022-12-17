@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 proof-impl = { path = "../proof-impl" }
 proof-core = { path = "../proof-core" }
+owo-colors = "3.5.0"

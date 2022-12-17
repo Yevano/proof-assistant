@@ -1,3 +1,3 @@
 [build]
 incremental = true
-rustflags = ["-Zmacro-backtrace"]
+rustflags = ["-Zmacro-backtrace", "-Zproc-macro-backtrace"]

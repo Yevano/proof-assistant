@@ -49,6 +49,72 @@ impl<'a> Context<'a> {
     pub fn iter(&self) -> ContextIter<'_> {
         ContextIter { context: self }
     }
+
+    pub fn resolve_type(&self, expr: &Expression) -> Result<Expression> {
+        let result = || match expr {
+            Expression::Hole => Result::Ok(Expression::Hole),
+            Expression::Sort(i) => Result::Ok(Expression::sort(i.index() + 1)),
+
+            Expression::Variable(v) => match self.get(v) {
+                Some(t) => Result::Ok(t),
+                None => error!("variable {} not found in context {}", v, self).into(),
+            },
+
+            Expression::Binder(binder_type, box Binder(v, type_, body)) => {
+                let body_context = self.clone().extend(v.clone(), Cow::Borrowed(type_));
+                match binder_type {
+                    BinderType::Abstraction => {
+                        let body_type = body_context.resolve_type(body).chain_error(|| {
+                            error!("failed to resolve type of body of abstraction {}", expr)
+                        })?;
+                        Result::Ok(Expression::product(v.clone(), type_.clone(), body_type))
+                    }
+                    BinderType::Product => body_context.resolve_type(body).chain_error(|| {
+                        error!("failed to resolve type of body of product {}", expr)
+                    }),
+                }
+            }
+
+            Expression::Application(app_lhs, app_rhs) => {
+                let app_lhs_type = self.resolve_type(app_lhs).chain_error(|| {
+                    error!(
+                        "failed to resolve left-hand-side of application [{}] [{}]",
+                        app_lhs, app_rhs,
+                    )
+                })?;
+                match app_lhs_type {
+                    Expression::Binder(BinderType::Product, box Binder(_v, type_, body)) => {
+                        let app_rhs_type = self.resolve_type(app_rhs).chain_error(|| {
+                            error!("failed to resolve type of argument in application {}", expr)
+                        })?;
+
+                        expressions_match(&type_, &app_rhs_type)
+                            .map(|_| substitute(&body, _v, &app_rhs.clone()))
+                            .chain_error(|| {
+                                error!(
+                                    "type mismatch in application [{}] [{}]: expected argument of type {}, got {}",
+                                    app_lhs, app_rhs, type_, app_rhs_type
+                                )
+                            })
+                    }
+                    _ => error!(
+                        "expected left-hand-side of application [{}] [{}] to be a product type, got {}",
+                        app_lhs, app_rhs, app_lhs_type
+                    )
+                    .into(),
+                }
+            }
+        };
+
+        result()
+            .map(|x| beta_reduce(&x))
+            .chain_error(|| error!("failed to resolve type of {}", expr))
+    }
+
+    pub fn inhabits_type(&self, value: &Expression, typ: &Expression) -> Result<()> {
+        let actual_type = self.resolve_type(value)?;
+        expressions_match(&actual_type, typ)
+    }
 }
 
 // implement Display for Context
@@ -85,59 +151,38 @@ impl<'a> Iterator for ContextIter<'a> {
     }
 }
 
-pub fn resolve_type(expr: &Expression, context: &Context) -> Result<Expression> {
-    let result = || match expr {
-        Expression::Hole => Result::Ok(Expression::Hole),
-        Expression::Sort(i) => Result::Ok(Expression::sort(i.index() + 1)),
+pub struct TypeEquation<'a> {
+    pub lhs: Cow<'a, Expression>,
+    pub rhs: Cow<'a, Expression>,
+}
 
-        Expression::Variable(v) => match context.get(v) {
-            Some(t) => Result::Ok(t),
-            None => error!("variable {} not found in context {}", v, context).into(),
-        },
+trait InferenceSolver {
+    fn solve<'a>(&self, context: &Context<'a>, equations: &mut Vec<TypeEquation<'a>>) -> Result<()>;
+}
 
-        Expression::Binder(binder_type, box Binder(v, type_, body)) => {
-            let body_context = context.clone().extend(v.clone(), Cow::Borrowed(type_));
-            match binder_type {
-                BinderType::Abstraction => {
-                    let body_type = resolve_type(body, &body_context).chain_error(|| {
-                        error!("failed to resolve type of body of abstraction {}", expr)
-                    })?;
-                    Result::Ok(Expression::product(v.clone(), type_.clone(), body_type))
-                }
-                BinderType::Product => resolve_type(body, &body_context)
-                    .chain_error(|| error!("failed to resolve type of body of product {}", expr)),
+impl InferenceSolver for Expression {
+    /// Solve the type equations for the given expression in the given context.
+    /// 
+    /// f : Πx : A. B
+    /// y : C
+    /// f y : B
+    /// -------------
+    /// A = C
+    /// 
+    /// Infer type of function.
+    /// f : F
+    /// y : A
+    /// f y : B
+    /// -------------
+    /// F = Πx : A. B
+    /// 
+    fn solve<'a>(&self, context: &Context<'a>, equations: &mut Vec<TypeEquation<'a>>) -> Result<()> {
+        match self {
+            Expression::Binder(_, _) => todo!(),
+            Expression::Application(f, y) => {
+                todo!()
             }
+            _ => Ok(()),
         }
-
-        Expression::Application(app_lhs, app_rhs) => {
-            let app_lhs_type = resolve_type(app_lhs, context).chain_error(|| {
-                error!("failed to resolve type of function in application {}", expr)
-            })?;
-            match app_lhs_type {
-                Expression::Binder(BinderType::Product, box Binder(_v, type_, body)) => {
-                    let app_rhs_type = resolve_type(app_rhs, context).chain_error(|| {
-                        error!("failed to resolve type of argument in application {}", expr)
-                    })?;
-
-                    expressions_match(&type_, &app_rhs_type)
-                        .map(|_| substitute(&body, _v, &app_rhs.clone()))
-                        .chain_error(|| {
-                            error!(
-                                "type mismatch in application {}: expected {}, got {}",
-                                expr, type_, app_rhs_type
-                            )
-                        })
-                }
-                _ => error!(
-                    "expected abstraction in application {}, got {}",
-                    expr, app_lhs_type
-                )
-                .into(),
-            }
-        }
-    };
-
-    result()
-        .map(|x| beta_reduce(&x))
-        .chain_error(|| error!("failed to resolve type of {}", expr))
+    }
 }
