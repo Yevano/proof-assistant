@@ -7,3 +7,4 @@ edition = "2021"
 syn = { version = "1.0.103", features = ["full"] }
 quote = "1.0.21"
 proc-macro2 = { version = "1.0.47", features = ["span-locations"] }
+console = "0.15.2"

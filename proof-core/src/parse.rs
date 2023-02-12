@@ -1,10 +1,10 @@
-use proc_macro2::Delimiter::{Parenthesis, self};
+use proc_macro2::Delimiter::Parenthesis;
 use quote::{quote, ToTokens};
 use syn::{
     parenthesized,
     parse::{Lookahead1, Parse, ParseStream},
     token::Underscore,
-    Ident, Token, LitStr,
+    Ident, LitStr,
 };
 
 use crate::expr::{Binder, BinderType, Expression, SortRank, Variable};
@@ -17,7 +17,7 @@ fn get_binder_type_by_ident(ident: &Ident) -> Option<crate::expr::BinderType> {
     }
 }
 
-fn parse_binder(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Expression> {
+fn parse_binder(input: ParseStream, _lookahead: &Lookahead1) -> syn::Result<Expression> {
     let binder_type = input.step(|cursor| {
         if let Some((ident, cursor)) = cursor.ident() {
             get_binder_type_by_ident(&ident)
@@ -50,7 +50,7 @@ fn parse_binder(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Expre
     ))
 }
 
-fn parse_variable(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Expression> {
+fn parse_variable(input: ParseStream, _lookahead: &Lookahead1) -> syn::Result<Expression> {
     Ok(Expression::variable(
         input
             .parse::<Ident>()
@@ -60,13 +60,13 @@ fn parse_variable(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Exp
     ))
 }
 
-fn parse_parens(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Expression> {
+fn parse_parens(input: ParseStream, _lookahead: &Lookahead1) -> syn::Result<Expression> {
     let content;
     parenthesized!(content in input);
     content.parse::<Expression>()
 }
 
-fn parse_sort(input: ParseStream, lookahead: &Lookahead1) -> syn::Result<Expression> {
+fn parse_sort(input: ParseStream, _lookahead: &Lookahead1) -> syn::Result<Expression> {
     input
         .parse::<syn::Token!(*)>()
         .map_err(|_| input.error("expected `*` here"))?;
@@ -98,7 +98,7 @@ fn add_error<T>(errors: &mut Vec<syn::Error>, result: syn::Result<T>) -> syn::Re
 
 impl Parse for crate::expr::Expression {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut exprs = std::iter::repeat_with(|| {
+        let exprs = std::iter::repeat_with(|| {
             let mut errors = vec![];
             let lookahead = input.lookahead1();
             if let Ok(expr) = add_error(&mut errors, parse_binder(input, &lookahead)) {
@@ -140,7 +140,7 @@ impl Parse for crate::expr::Expression {
             Ok(Expression::arrow(e, Self::parse(input)?))
         /* } else if input. {
         todo!() */
-        } else if let Ok(lit) = input.parse::<LitStr>() {
+        } else if let Ok(_lit) = input.parse::<LitStr>() {
             Ok(Expression::application(e, Self::parse(input)?))
         } else {
             Ok(e)
@@ -189,5 +189,31 @@ impl ToTokens for BinderType {
             BinderType::Product => quote!(proof_core::expr::BinderType::Product),
             BinderType::Abstraction => quote!(proof_core::expr::BinderType::Abstraction),
         })
+    }
+}
+
+pub struct StringToCharArray {
+    string: String,
+}
+
+impl Parse for StringToCharArray {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lit = input.parse::<syn::LitStr>()?;
+        Ok(Self { string: lit.value() })
+    }
+}
+
+impl ToTokens for StringToCharArray {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let mut comma_separated = proc_macro2::TokenStream::new();
+        let chars: Vec<char> = self.string.chars().collect();
+        if let Some((first, rest)) = chars.split_first() {
+            comma_separated.extend(quote!(#first));
+            for c in rest {
+                comma_separated.extend(quote!(, #c))
+            }
+        }
+
+        tokens.extend(quote!([#comma_separated]))
     }
 }

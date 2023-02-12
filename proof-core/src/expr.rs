@@ -81,6 +81,10 @@ impl SortRank {
     pub fn index(&self) -> u32 {
         self.0
     }
+
+    pub fn succ(&self) -> Self {
+        Self::new(self.0 + 1)
+    }
 }
 
 impl Display for SortRank {
@@ -133,7 +137,11 @@ pub enum Expression {
 }
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub struct MappedBinder<T>(pub Variable, pub MappedExpression<T>, pub MappedExpression<T>);
+pub struct MappedBinder<T>(
+    pub Variable,
+    pub MappedExpression<T>,
+    pub MappedExpression<T>,
+);
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum MappedExpression<T> {
@@ -233,18 +241,67 @@ impl Expression {
             Expression::Binder(a, box Binder(b, c, d)) => MappedExpression::Binder(
                 attachment,
                 *a,
-                MappedBinder(
-                    b.clone(),
-                    c.map(mapper),
-                    d.map(mapper),
-                )
-                .into(),
+                MappedBinder(b.clone(), c.map(mapper), d.map(mapper)).into(),
             ),
             Expression::Application(box a, box b) => MappedExpression::Application(
                 attachment,
                 a.map(mapper).into(),
                 b.map(mapper).into(),
             ),
+        }
+    }
+
+    pub fn walk<F: Fn(&Expression)>(&self, walker: &F) {
+        walker(self);
+        match self {
+            Self::Binder(_, box Binder(_, c, d)) => {
+                c.walk(walker);
+                d.walk(walker);
+            }
+            Self::Application(box a, box b) => {
+                a.walk(walker);
+                b.walk(walker);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn path_ref(&self, path: &ExpressionPath) -> Option<&Self> {
+        match (self, path.as_ref()) {
+            (_, []) => Some(self),
+            (
+                Self::Binder(_, box Binder(_, a, _)),
+                [ExpressionPathPart::BinderArgumentType, end @ ..],
+            ) => a.path_ref(&ExpressionPath::new(end)),
+            (Self::Binder(_, box Binder(_, _, a)), [ExpressionPathPart::BinderBody, end @ ..]) => {
+                a.path_ref(&ExpressionPath::new(end))
+            }
+            (Self::Application(box a, _), [ExpressionPathPart::ApplicationLeft, end @ ..]) => {
+                a.path_ref(&ExpressionPath::new(end))
+            }
+            (Self::Application(_, box a), [ExpressionPathPart::ApplicationRight, end @ ..]) => {
+                a.path_ref(&ExpressionPath::new(end))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn collect_paths_into(
+        &self,
+        parent_path: &ExpressionPath,
+        paths: &mut Vec<ExpressionPath>,
+    ) {
+        paths.push(parent_path.clone());
+        match self {
+            Expression::Binder(_, box Binder(_, a, b)) => {
+                a.collect_paths_into(&parent_path.clone_with_binder_argument_type(), paths);
+                b.collect_paths_into(&parent_path.clone_with_binder_body(), paths);
+            }
+            Expression::Application(box a, box b) => {
+                a.collect_paths_into(&parent_path.clone_with_application_left(), paths);
+                b.collect_paths_into(&parent_path.clone_with_application_right(), paths);
+            }
+            _ => {}
         }
     }
 }
@@ -512,7 +569,7 @@ impl Display for PrettyExpression {
 }
 
 impl From<Expression> for PrettyExpression {
-    fn from(expression: Expression) -> Self {
+    fn from(_expression: Expression) -> Self {
         todo!()
     }
 }
@@ -535,4 +592,134 @@ fn to_subscript(n: u32) -> String {
         });
     }
     s
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ExpressionPathPart {
+    Parent,
+    BinderArgumentType,
+    BinderBody,
+    ApplicationLeft,
+    ApplicationRight,
+}
+
+impl Display for ExpressionPathPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ExpressionPathPart::Parent => "..",
+            ExpressionPathPart::BinderArgumentType => "arg-type",
+            ExpressionPathPart::BinderBody => "body",
+            ExpressionPathPart::ApplicationLeft => "left",
+            ExpressionPathPart::ApplicationRight => "right",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpressionPath {
+    parts: Vec<ExpressionPathPart>,
+}
+
+impl ExpressionPath {
+    pub fn new(parts: &[ExpressionPathPart]) -> Self {
+        Self {
+            parts: parts.into(),
+        }
+    }
+
+    pub fn parent(&self) -> Option<Self> {
+        match &self.parts[..] {
+            [] => None,
+            [start @ .., _] => Some(Self::new(start)),
+        }
+    }
+
+    pub fn push(&mut self, path_part: ExpressionPathPart) {
+        self.parts.push(path_part);
+    }
+
+    pub fn push_parent(&mut self) {
+        self.parts.push(ExpressionPathPart::Parent)
+    }
+
+    pub fn push_binder_argument_type(&mut self) {
+        self.parts.push(ExpressionPathPart::BinderArgumentType)
+    }
+
+    pub fn push_binder_body(&mut self) {
+        self.parts.push(ExpressionPathPart::BinderBody)
+    }
+
+    pub fn push_application_left(&mut self) {
+        self.parts.push(ExpressionPathPart::ApplicationLeft)
+    }
+
+    pub fn push_application_right(&mut self) {
+        self.parts.push(ExpressionPathPart::ApplicationRight)
+    }
+
+    pub fn clone_with_parent(&self) -> Self {
+        let mut parts = self.parts.clone();
+        parts.push(ExpressionPathPart::Parent);
+        Self::new(&parts)
+    }
+
+    pub fn clone_with_binder_argument_type(&self) -> Self {
+        let mut parts = self.parts.clone();
+        parts.push(ExpressionPathPart::BinderArgumentType);
+        Self::new(&parts)
+    }
+
+    pub fn clone_with_binder_body(&self) -> Self {
+        let mut parts = self.parts.clone();
+        parts.push(ExpressionPathPart::BinderBody);
+        Self::new(&parts)
+    }
+
+    pub fn clone_with_application_left(&self) -> Self {
+        let mut parts = self.parts.clone();
+        parts.push(ExpressionPathPart::ApplicationLeft);
+        Self::new(&parts)
+    }
+
+    pub fn clone_with_application_right(&self) -> Self {
+        let mut parts = self.parts.clone();
+        parts.push(ExpressionPathPart::ApplicationRight);
+        Self::new(&parts)
+    }
+
+    pub fn join(&self, other_path: &Self) -> Self {
+        let mut new_path = vec![];
+        for part in other_path.parts.clone().into_iter() {
+            if let ExpressionPathPart::Parent = part {
+                new_path.pop();
+            } else {
+                new_path.push(part);
+            }
+        }
+        Self::new(&new_path)
+    }
+
+    pub fn join_mut(&mut self, mut other_path: Self) {
+        self.parts.append(&mut other_path.parts);
+    }
+}
+
+impl AsRef<[ExpressionPathPart]> for ExpressionPath {
+    fn as_ref(&self) -> &[ExpressionPathPart] {
+        &self.parts
+    }
+}
+
+impl Display for ExpressionPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self
+            .parts
+            .iter()
+            .map(|p| format!("{}", p))
+            .intersperse("/".to_string())
+            .collect::<String>();
+        write!(f, "/{}", s)
+    }
 }

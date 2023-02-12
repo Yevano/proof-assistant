@@ -4,7 +4,7 @@ use proof_core::{
     result::ResultExt,
     types::Context,
 };
-use proof_impl::expr;
+use proof_impl::{expr, char_slice_from_str};
 
 fn report_goals(expression: Expression, expected_type: Expression) {
     let constraint = Constraint::HasType(TypeConstraint {
@@ -50,8 +50,6 @@ fn test_prettify() {
 mod term_writer_tests {
     use proof_core::{term_writer::*, term::Term};
 
-
-
     #[test]
     fn create_terms() {
         // let mut term_writer = TermWriter::new();
@@ -61,4 +59,11 @@ mod term_writer_tests {
 
         // println!("{}", term);
     }
+}
+
+#[test]
+fn test_string_slice_macro() {
+    let bs: [char; 0] = char_slice_from_str!("");
+    let cs: [char; 0] = [];
+    assert_eq!(&bs, &cs)
 }

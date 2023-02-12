@@ -143,8 +143,8 @@ impl<'a> DefinitionScope<'a> {
         expressions_match(&substituted_lhs, &substituted_rhs).is_ok()
     }
 
-    pub fn context(&self) -> Context<'a> {
-        self.context.clone()
+    pub fn context(&self) -> &Context<'a> {
+        &self.context
     }
 }
 

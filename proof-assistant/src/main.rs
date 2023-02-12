@@ -6,13 +6,13 @@
 #[cfg(test)]
 mod tests;
 
+use console::Term;
 use proof_core::{
     error,
-    expr::{Binder, BinderType, Expression, SortRank},
+    expr::{Expression, ExpressionPath},
     goals::{find_goals, Constraint, TypeConstraint},
     result::{Result, ResultExt},
-    scope::DefinitionScope,
-    types::Context,
+    scope::DefinitionScope, repl::Repl, eval::free_variables, types::{InferenceSolver, PathContext, map_path_type_constraint_from_paths},
 };
 
 use proof_impl::expr;
@@ -63,7 +63,7 @@ impl<'a> GoalReporter for DefinitionScope<'a> {
             expression,
             expected_type,
         });
-        let goals = find_goals(self.context(), &constraint).unwrap_chain();
+        let goals = find_goals(self.context().clone(), &constraint).unwrap_chain();
 
         if goals.is_empty() {
             println!("Success, no goals left!");
@@ -85,9 +85,11 @@ macro_rules! goals {
 }
 
 fn main() {
-    scope_test();
+    let mut repl = Repl::new(Term::stdout());
+    repl.run_repl().unwrap();
 }
 
+#[test]
 fn scope_test() {
     let mut scope = DefinitionScope::new();
 
@@ -126,11 +128,11 @@ fn scope_test() {
 
     def!(scope, Bool := for α : *. α => α => α);
     show!(scope, Bool);
-    
+
     def!(scope, bool_true := fun α : *. fun x : α. fun y : α. x);
     check!(scope, (bool_true): (Bool));
     show!(scope, bool_true);
-    
+
     def!(scope, bool_false := fun α : *. fun x : α. fun y : α. y);
     check!(scope, (bool_false): (Bool));
     show!(scope, bool_false);
@@ -145,7 +147,7 @@ fn scope_test() {
     show!(scope, TheoremNotBot);
 
     def!(scope, not_bot := id Bot);
-    check!(scope, (not_bot) : (TheoremNotBot));
+    check!(scope, (not_bot): (TheoremNotBot));
 
     def!(scope, And := fun α : *. fun β : *. for γ : *. (α => β => γ) => γ);
     show!(scope, And);
@@ -268,7 +270,7 @@ fn scope_test() {
         fun p_and_q : And P Q.
         pair Q P (snd P Q p_and_q) (fst P Q p_and_q)
     );
-    check!(scope, (and_symm) : (TheoremAndSymm));
+    check!(scope, (and_symm): (TheoremAndSymm));
 
     // P ∨ Q => Q ∨ P
     def!(scope, TheoremOrSymm :=
@@ -283,7 +285,7 @@ fn scope_test() {
             (fun p : P. right Q P p)
             (fun q : Q. left Q P q)
     );
-    check!(scope, (or_symm) : (TheoremOrSymm));
+    check!(scope, (or_symm): (TheoremOrSymm));
 
     // P ∧ (Q ∧ R) => (P ∧ Q) ∧ R
     def!(scope, TheoremAndAssoc :=
@@ -300,7 +302,7 @@ fn scope_test() {
             )
             (snd Q R (snd P (And Q R) h))
     );
-    check!(scope, (and_assoc) : (TheoremAndAssoc));
+    check!(scope, (and_assoc): (TheoremAndAssoc));
 
     // P ∨ (Q ∨ R) => (P ∨ Q) ∨ R
     def!(scope, TheoremOrAssoc :=
@@ -320,7 +322,7 @@ fn scope_test() {
                 (fun r : R. case_r r)
             )
     );
-    check!(scope, (or_assoc) : (TheoremOrAssoc));
+    check!(scope, (or_assoc): (TheoremOrAssoc));
 
     // (P <=> Q) => P => Q
     def!(scope, TheoremIffForward := for P : *. for Q : *. Iff P Q => P => Q);
@@ -329,31 +331,69 @@ fn scope_test() {
         fun P : *. fun Q : *.
         ?
     );
-    goals!(scope, [iff_forward] : [TheoremIffForward]);
+    goals!(scope, [iff_forward]: [TheoremIffForward]);
 
-    // ¬(P ∧ Q) => ¬P ∨ ¬Q
-    def!(scope, TheoremNegConjToDisj :=
-        for P : *. for Q : *. Not (And P Q) => Or (Not P) (Not Q)
-    );
-    show!(scope, TheoremNegConjToDisj);
-    /* def!(scope, neg_conj_to_disj :=
-        fun P : *. fun Q : *.
-        fun not_p_and_q : Not (And P Q).
-        fun γ : *.
-        fun case_not_p : Not P => γ.
-        fun case_not_q : Not Q => γ.
-        (
-            fun h : Or (Not (And P Q)) (Not (Not (And P Q))).
-            h γ
-                (fun _ : Not (And P Q). ?)
-                (
-                    fun _ : Not (Not (And P Q)).
-                    double_neg
-                )
-        )
-        (lem (Not (And P Q)) not_p_and_q)
+    /* let e = &expr!(
+        fun n : for α : *. (α => α) => α => α.
+        fun β : *.
+        fun f : β => β.
+        fun x : β.
+        n A (fun g : G. fun h : H. h (g f)) (fun y : Y. x) (fun y : Z. y)
     ); */
-    return ();
+    let e = &expr!(
+        fun id : (for α : *. α => α). fun U : *. fun x : U. id A x
+    );
+
+    /* let mut equations = vec![];
+    e.solve_equations(scope.context(), &mut equations).unwrap_chain();
+    println!("Solving...");
+    for eq in equations.iter() {
+        println!("{}", eq);
+    } */
+
+    /* let mut paths = vec![];
+    e.collect_paths_into(&ExpressionPath::new(&[]), &mut paths);
+    for path in paths.iter() {
+        println!("{}: {}", &path, e.path_ref(path).unwrap());
+    } */
+
+    println!("Unknowns...");
+    let fvs = free_variables(e);
+    for fv in fvs.iter() {
+        println!("{}", fv);
+    }
+
+    println!("Solving constraints...");
+    let mut constraints = vec![];
+    e.init_constraints(
+        &mut PathContext::new(),
+        &ExpressionPath::new(&[]),
+        &mut constraints,
+    );
+    for constraint in constraints.iter() {
+        // println!("{}", constraint);
+        /* match constraint {
+            PathTypeConstraint::TermInhabitsType { term, type_of_term } => println!(
+                "\"{}\" -> \"{}\"",
+                term, type_of_term
+            ),
+            PathTypeConstraint::TermInhabitsProductType {
+                term,
+                inhabited_product_argument_type,
+                inhabited_product_return_type,
+            } => {
+                println!("\"{}\" -> \"{}\" [arrowhead=\"diamond\" ]", term, inhabited_product_argument_type);
+                println!("\"{}\" -> \"{}\" [arrowhead=\"ediamond\" ]", term, inhabited_product_return_type);
+            }
+            PathTypeConstraint::TermsAreEqual { term_lhs, term_rhs } => println!("\"{}\" -> \"{}\" [dir=\"both\" arrowhead=\"box\" arrowtail=\"box\"]", term_lhs, term_rhs),
+            PathTypeConstraint::TermsInhabitSameType { term_lhs, term_rhs } => println!("\"{}\" -> \"{}\" [dir=\"both\" arrowhead=\"obox\" arrowtail=\"obox\"]", term_lhs, term_rhs),
+            PathTypeConstraint::TermInhabitsUnknownType(_) => {},
+            PathTypeConstraint::TermIsIllFormed(_) => {},
+            PathTypeConstraint::TermIsProductType(_) => {},
+            PathTypeConstraint::TermIsSort(term, sort_rank) => { println!("\"{}\" -> \"{}\" [dir=\"both\" arrowhead=\"box\" arrowtail=\"box\"]", term, Expression::Sort(*sort_rank)) },
+        } */
+        println!("{}", map_path_type_constraint_from_paths(e, constraint))
+    }
 
     def!(scope, TheoremNegConj := for P : *. for Q : *. Iff (Not (And P Q)) (Or (Not P) (Not Q)));
     /* def!(scope, neg_conj :=
@@ -371,7 +411,7 @@ fn scope_test() {
                 // goal : (Or (Not P) (Not Q))
                 //      : ΠR : *. (Not P => R) => (Not Q => R) => R
                 //
-                fun 
+                fun
             )
     ); */
 
@@ -719,235 +759,12 @@ fn scope_test() {
     );
     show!(scope, LTNat);
 
-    def!(scope, GENat :=
-        fun m : Nat.
-        fun n : Nat.
-        Not (LTNat m n)
-    );
-    show!(scope, GENat);
-
-    // ∀m n : 𝐍. m = n => m >= n
-    def!(scope, TheoremNatEqThenGE :=
-        for m : Nat. for n : Nat. EqNat m n => GENat m n
-    );
-
-    def!(scope, nat_eq_then_ge :=
-        fun m : Nat. fun n : Nat.
-        // goal : m = n => m >= n
-        fun m_eq_n : EqNat m n.
-        // goal : m >= n
-        //      : ¬(m < n)
-        //      : m < n => ⊥
-        fun m_lt_n : LTNat m n.
-        // m_lt_n : for C : *. (
-        //     for x : Nat.
-        //     And
-        //         (EqNat (nat_sub m x) (nat_zero))
-        //         (EqNat (nat_sub n x) nat_one)
-        //     => C
-        // ) => C
-        // goal : ⊥
-        m_lt_n
-            (Bot)
-            (
-                // goal: (
-                //     for x : Nat.
-                //     And
-                //         (EqNat (nat_sub m x) (nat_zero))
-                //         (EqNat (nat_sub n x) nat_one)
-                //     => Bot
-                // ) => Bot
-                fun _ : // ∀x : 𝐍. ¬((m - x = 0) ∧ (n - x = 1))
-                    for x : Nat.
-                    Not (
-                        And
-                            (EqNat (nat_sub m x) (nat_zero))
-                            (EqNat (nat_sub n x) nat_one)
-                    ).
-                    // goal : ⊥
-                    
-            )
-    );
-    // check!(scope, (nat_eq_then_ge) : (TheoremNatEqThenGE));
-
-    /* def!(scope, zero_ge_zero :=
-        fun 
-    );
-    check!() */
-
     def!(scope, ind_ge_zero :=
         fun zero_case : ?.
         fun ind_case : ?.
         fun x : Nat.
         ?
     );
-    // check!(scope, (ind_ge_zero) : (Ind ));
-
-/*     def!(scope, Set := for α : *. α => *);
-    show!(scope, Set);
-
-    def!(scope, EmptySet := fun α : *. fun x : α. Bot);
-    show!(scope, EmptySet);
-    check!(scope, (EmptySet) : (Set));
-
-    def!(scope, UniversalSet := fun α : *. fun x : α. Id);
-    show!(scope, UniversalSet);
-    check!(scope, (UniversalSet) : (Set));
-
-    def!(scope, ElementOf :=
-        fun α : *.
-        fun x : α.
-        fun S : Set.
-        S α x
-    );
-    show!(scope, ElementOf);
-    check!(scope, (ElementOf) : (for α : *. α => Set => *));
-
-    def!(scope, Subset :=
-        fun A : Set.
-        fun B : Set.
-        for α : *.
-        for x : α.
-        ElementOf α x A => ElementOf α x B
-    );
-    show!(scope, Subset);
-    check!(scope, (Subset) : (Set => Set => *));
-    
-    // The empty set is a subset of all sets.
-    def!(scope, TheoremEmptySetSubsetAll := for S : Set. Subset EmptySet S);
-    show!(scope, TheoremEmptySetSubsetAll);
-
-    def!(scope, empty_set_subset_all :=
-        fun S : Set.
-        fun α : *.
-        fun x : α.
-        poe (S α x)
-    );
-    check!(scope, (empty_set_subset_all) : (TheoremEmptySetSubsetAll));
-
-    // Every set is a subset of the universal set.
-    def!(scope, TheoremAllSubsetUniversal := for S : Set. Subset S UniversalSet);
-    show!(scope, TheoremAllSubsetUniversal);
-
-    def!(scope, all_subset_universal :=
-        fun S : Set.
-        fun α : *.
-        fun x : α.
-        fun P : S α x.
-        id
-    );
-    check!(scope, (all_subset_universal) : (TheoremAllSubsetUniversal));
-
-    // Every set is a subset of itself.
-    def!(scope, TheoremSetSubsetSelf := for S : Set. Subset S S);
-    show!(scope, TheoremSetSubsetSelf);
-
-    def!(scope, set_subset_self :=
-        fun S : Set.
-        fun α : *.
-        fun x : α.
-        id (S α x)
-    );
-    check!(scope, (set_subset_self) : (TheoremSetSubsetSelf));
-
-    def!(scope, SetEq :=
-        fun A : Set.
-        fun B : Set.
-        And (Subset A B) (Subset B A)
-    );
-
-    def!(scope, ComplementSet :=
-        fun A : Set.
-        fun α : *.
-        fun x : α.
-        Not (ElementOf α x A)
-    );
-    check!(scope, (ComplementSet) : (Set => Set));
-
-    // There are no elements in ∅
-    def!(scope, TheoremNothingInEmptySet := for α : *. for x : α. Not (ElementOf α x EmptySet));
-    show!(scope, TheoremNothingInEmptySet);
-
-    def!(scope, nothing_in_empty_set := fun α : *. fun x : α. not_bot);
-
-    // ∅' = U
-    def!(scope, TheoremComplementEmptyEqUniversal := SetEq (ComplementSet EmptySet) UniversalSet);
-    show!(scope, TheoremComplementEmptyEqUniversal);
-
-    def!(scope, complement_empty_eq_universal :=
-        // Since A = B => A ⊆ B ∧ B ⊆ A
-        // We start by constructing the pair (∅' ⊆ U, U ⊆ ∅')
-        pair
-            (Subset (ComplementSet EmptySet) UniversalSet)
-            (Subset UniversalSet (ComplementSet EmptySet))
-
-            // S ⊆ U for all S, so ∅' ⊆ U
-            (all_subset_universal (ComplementSet EmptySet))
-
-            // U ⊆ ∅'
-            (
-                fun α : *.
-                fun x : α.
-                fun _ : Id.
-                not_bot
-            )
-    );
-    check!(scope, (complement_empty_eq_universal) : (TheoremComplementEmptyEqUniversal));
-
-    def!(scope, SetIntersection :=
-        fun A : Set.
-        fun B : Set.
-        fun α : *.
-        fun x : α.
-        And (ElementOf α x A) (ElementOf α x B)
-    );
-    show!(scope, SetIntersection);
-    check!(scope, (SetIntersection) : (Set => Set => Set));
-
-    def!(scope, SetUnion :=
-        fun A : Set.
-        fun B : Set.
-        fun α : *.
-        fun x : α.
-        Or (ElementOf α x A) (ElementOf α x B)
-    );
-    show!(scope, SetUnion);
-    check!(scope, (SetUnion) : (Set => Set => Set));
-
-    def!(scope, SmallSet :=
-        fun α : *. α => *
-    );
-    show!(scope, SmallSet);
-
-    def!(scope, Comprehension :=
-        fun A : Set.
-        fun α : *.
-        fun ϕ : α => *.
-        for x : α.
-        ElementOf α x A => ϕ x
-    );
-    show!(scope, Comprehension);
-    // check!(scope, (Comprehension) : (Set => for α : *. SmallSet α));
-
-    show!(scope, Comprehension UniversalSet Int (fun x : Int. Eq Int x x));
-
-    def!(scope, PairSet :=
-        fun α : *.
-        fun x : α.
-        fun y : α.
-        fun z : α.
-        ?
-    );
-
-    def!(scope, NonZeroInt :=
-        for γ : *. (for z : Int. Not (Eq Int z int_zero)) => γ
-    );
-    show!(scope, NonZeroInt); */
-
-    /* def!(scope, Rational :=
-        for γ : *.
-        ()
-    ); */
 
     def!(scope, inter :=
         fun A : *.
